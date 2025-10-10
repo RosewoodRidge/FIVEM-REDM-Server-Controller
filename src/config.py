@@ -6,7 +6,7 @@ from tkinter import ttk, messagebox, filedialog
 
 # --- Configuration ---
 # Hard-coded configuration values
-LOG_FILE = 'backup.log'
+LOG_FILE = 'logs\\backup.log'
 
 # Database configuration
 DB_HOST = 'localhost'

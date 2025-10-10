@@ -5,9 +5,13 @@ import subprocess
 from datetime import datetime, timedelta
 from config import LOG_FILE, DB_BACKUP_HOURS, SERVER_BACKUP_HOURS, BACKUP_MINUTE
 
+# Ensure logs directory exists
+logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs")
+os.makedirs(logs_dir, exist_ok=True)
+
 # --- Setup Logging ---
 logging.basicConfig(
-    filename=LOG_FILE,
+    filename=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", LOG_FILE),
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'

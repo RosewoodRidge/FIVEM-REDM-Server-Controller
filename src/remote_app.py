@@ -8,9 +8,13 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 from datetime import datetime
 
+# Ensure logs directory exists
+logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs")
+os.makedirs(logs_dir, exist_ok=True)
+
 # Set up logging for the remote app
 logging.basicConfig(
-    filename='remote_client.log',
+    filename=os.path.join(logs_dir, 'remote_client.log'),
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
@@ -30,8 +34,8 @@ from remote_settings import load_settings, save_settings
 # Import colors from config
 from config import COLORS
 
-# Version constant
-REMOTE_VERSION = "2.1"  # Keep in sync with main app
+# Import version from update module
+from update import CURRENT_VERSION
 
 class ModernScrolledText(scrolledtext.ScrolledText):
     """Custom ScrolledText widget with Web 3.0 styling"""
@@ -207,7 +211,7 @@ class RemoteClientApp:
         # Version label
         version_label = ttk.Label(
             status_bar, 
-            text=f"v{REMOTE_VERSION} Remote", 
+            text=f"v{CURRENT_VERSION} Remote", 
             foreground=COLORS['text_secondary'],
             font=('Segoe UI', 9)
         )
