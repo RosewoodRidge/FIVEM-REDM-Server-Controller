@@ -176,6 +176,10 @@ class RemoteClientApp:
         self.server_backups = []
         self.txadmin_backups = []
         
+        # Auto-refresh flags
+        self.auto_refresh_enabled = False
+        self.refresh_timers = []
+        
         # Create main content
         self.create_connection_panel()
         
@@ -208,6 +212,15 @@ class RemoteClientApp:
             font=('Segoe UI', 9)
         )
         version_label.pack(side=tk.RIGHT)
+
+        # Disconnect button (initially hidden)
+        self.disconnect_button = ttk.Button(
+            status_bar,
+            text="Disconnect",
+            command=self.disconnect_from_server,
+            style="Link.TButton"
+        )
+        # This button is packed to the right, before the version label.
     
     def create_connection_panel(self):
         """Create the connection panel for server details and auth"""
@@ -254,12 +267,28 @@ class RemoteClientApp:
         ).pack(side=tk.LEFT)
         
         self.auth_key_var = tk.StringVar(value=self.settings['connection']['auth_key'])
-        auth_key_entry = ttk.Entry(
-            auth_frame,
+        
+        # Container for entry and eye button
+        auth_entry_container = ttk.Frame(auth_frame)
+        auth_entry_container.pack(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
+        
+        self.auth_key_entry = ttk.Entry(
+            auth_entry_container,
             textvariable=self.auth_key_var,
-            width=40
+            width=40,
+            show="•"  # Hide characters by default
         )
-        auth_key_entry.pack(side=tk.LEFT, padx=10)
+        self.auth_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Eye icon button to show/hide
+        self.auth_key_visible = False
+        self.show_auth_button = ttk.Button(
+            auth_entry_container,
+            text="👁",
+            width=3,
+            command=self.toggle_auth_key_visibility
+        )
+        self.show_auth_button.pack(side=tk.LEFT, padx=(5, 0))
         
         # Connect button
         button_frame = ttk.Frame(self.connection_frame)
@@ -652,6 +681,15 @@ class RemoteClientApp:
         # Bind Enter key to send message
         log_entry.bind("<Return>", lambda event: self.send_log_message())
     
+    def toggle_auth_key_visibility(self):
+        """Toggle visibility of the authentication key"""
+        if self.auth_key_visible:
+            self.auth_key_entry.config(show="•")
+            self.auth_key_visible = False
+        else:
+            self.auth_key_entry.config(show="")
+            self.auth_key_visible = True
+    
     def connect_to_server(self):
         """Connect to the remote server"""
         server_ip = self.server_ip_var.get().strip()
@@ -720,25 +758,34 @@ class RemoteClientApp:
             self.connection_status_var.set("Connected")
             self.connection_status_label.config(style="Connected.TLabel")
             self.status_label.config(text="Status: Connected", style="Connected.TLabel")
-            self.connect_button.config(text="Disconnect", command=self.disconnect_from_server)
-            self.connect_button.config(state="normal")
             
-            # Show the notebook
+            # Hide connection panel and show main UI
+            self.connection_frame.pack_forget()
+            self.disconnect_button.pack(side=tk.RIGHT, padx=10)
             self.notebook.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
             
             # Log success
             self.log_to_ui("Connected to server successfully")
             
+            # Enable auto-refresh
+            self.auto_refresh_enabled = True
+            self.start_auto_refresh()
+            
         else:
             self.connection_status_var.set("Not Connected")
             self.connection_status_label.config(style="Disconnected.TLabel")
             self.status_label.config(text="Status: Not connected", style="Disconnected.TLabel")
-            self.connect_button.config(text="Connect", command=self.connect_to_server)
-            self.connect_button.config(state="normal")
+            self.connect_button.config(text="Connect", state="normal")
             
-            # Hide the notebook if it was shown
+            # Disable auto-refresh
+            self.auto_refresh_enabled = False
+            self.stop_auto_refresh()
+            
+            # Hide main UI and show connection panel
+            self.disconnect_button.pack_forget()
             if self.notebook.winfo_ismapped():
                 self.notebook.pack_forget()
+            self.connection_frame.pack(fill=tk.X, padx=15, pady=15)
                 
             # Log failure
             self.log_to_ui(f"Connection failed: {message}")
@@ -753,6 +800,87 @@ class RemoteClientApp:
                 self.connected = False
                 self.authenticated = False
     
+    def start_auto_refresh(self):
+        """Start automatic refresh timers for all components"""
+        if not self.auto_refresh_enabled:
+            return
+        
+        # Cancel any existing timers
+        self.stop_auto_refresh()
+        
+        # Server status - refresh every 3 seconds
+        timer1 = self.root.after(3000, self.auto_refresh_server_status)
+        self.refresh_timers.append(timer1)
+        
+        # Database backups - refresh every 5 seconds
+        timer2 = self.root.after(5000, self.auto_refresh_db_backups)
+        self.refresh_timers.append(timer2)
+        
+        # Server backups - refresh every 5 seconds
+        timer3 = self.root.after(5000, self.auto_refresh_server_backups)
+        self.refresh_timers.append(timer3)
+        
+        # TxAdmin backups - refresh every 5 seconds
+        timer4 = self.root.after(5000, self.auto_refresh_txadmin_backups)
+        self.refresh_timers.append(timer4)
+    
+    def stop_auto_refresh(self):
+        """Stop all automatic refresh timers"""
+        for timer in self.refresh_timers:
+            try:
+                self.root.after_cancel(timer)
+            except:
+                pass
+        self.refresh_timers.clear()
+    
+    def auto_refresh_server_status(self):
+        """Automatically refresh server status"""
+        if not self.auto_refresh_enabled or not self.check_connection_silent():
+            return
+        
+        # Request server status
+        self.client.send_command(CMD_SERVER_STATUS)
+        
+        # Schedule next refresh
+        timer = self.root.after(3000, self.auto_refresh_server_status)
+        self.refresh_timers.append(timer)
+    
+    def auto_refresh_db_backups(self):
+        """Automatically refresh database backups list"""
+        if not self.auto_refresh_enabled or not self.check_connection_silent():
+            return
+        
+        # Request database backup list
+        self.client.send_command(CMD_GET_DB_BACKUPS)
+        
+        # Schedule next refresh
+        timer = self.root.after(5000, self.auto_refresh_db_backups)
+        self.refresh_timers.append(timer)
+    
+    def auto_refresh_server_backups(self):
+        """Automatically refresh server backups list"""
+        if not self.auto_refresh_enabled or not self.check_connection_silent():
+            return
+        
+        # Request server backup list
+        self.client.send_command(CMD_GET_SERVER_BACKUPS)
+        
+        # Schedule next refresh
+        timer = self.root.after(5000, self.auto_refresh_server_backups)
+        self.refresh_timers.append(timer)
+    
+    def auto_refresh_txadmin_backups(self):
+        """Automatically refresh txAdmin backups list"""
+        if not self.auto_refresh_enabled or not self.check_connection_silent():
+            return
+        
+        # Request txAdmin backup list
+        self.client.send_command(CMD_GET_TXADMIN_BACKUPS)
+        
+        # Schedule next refresh
+        timer = self.root.after(5000, self.auto_refresh_txadmin_backups)
+        self.refresh_timers.append(timer)
+    
     def disconnect_from_server(self):
         """Disconnect from the server"""
         if not self.client:
@@ -760,8 +888,12 @@ class RemoteClientApp:
         
         self.log_to_ui("Disconnecting from server...")
         
+        # Disable auto-refresh
+        self.auto_refresh_enabled = False
+        self.stop_auto_refresh()
+        
         # Disable the button during disconnect
-        self.connect_button.config(text="Disconnecting...", state="disabled")
+        self.disconnect_button.config(text="Disconnecting...", state="disabled")
         
         # Disconnect in a thread
         threading.Thread(target=self._do_disconnect, daemon=True).start()
@@ -778,11 +910,13 @@ class RemoteClientApp:
             
             # Update UI
             self.root.after(0, lambda: self._update_connection_status(False, "Disconnected by user"))
+            self.root.after(0, lambda: self.disconnect_button.config(text="Disconnect", state="normal"))
             
         except Exception as e:
             self.log_to_ui(f"Error during disconnect: {str(e)}")
             # Still update UI
             self.root.after(0, lambda: self._update_connection_status(False, "Disconnected with errors"))
+            self.root.after(0, lambda: self.disconnect_button.config(text="Disconnect", state="normal"))
     
     def initialize_data(self):
         """Get initial data from the server after connecting"""
@@ -1209,8 +1343,16 @@ class RemoteClientApp:
             return False
         return True
     
+    def check_connection_silent(self):
+        """Check if we're connected and authenticated without showing error"""
+        return self.connected and self.authenticated
+    
     def on_close(self):
         """Clean up and exit"""
+        # Disable auto-refresh
+        self.auto_refresh_enabled = False
+        self.stop_auto_refresh()
+        
         if self.client:
             try:
                 self.client.disconnect()

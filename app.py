@@ -562,14 +562,38 @@ class BackupApp:
             text="Connect using this authentication key:"
         ).pack(anchor=tk.W, pady=(10, 5), padx=10)
         
-        # Show auth key in a readonly entry
-        auth_key_entry = ttk.Entry(
-            auth_frame,
+        # Container for auth key entry and buttons
+        auth_entry_frame = ttk.Frame(auth_frame)
+        auth_entry_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Show auth key in a readonly entry (password style by default)
+        self.auth_key_entry = ttk.Entry(
+            auth_entry_frame,
             textvariable=self.auth_key_var,
             width=40,
-            state="readonly"
+            state="readonly",
+            show="•"  # Hide characters by default
         )
-        auth_key_entry.pack(fill=tk.X, padx=10, pady=5)
+        self.auth_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        
+        # Eye icon button to show/hide
+        self.auth_key_visible = False
+        self.show_auth_button = ttk.Button(
+            auth_entry_frame,
+            text="👁",
+            width=3,
+            command=self.toggle_auth_key_visibility
+        )
+        self.show_auth_button.pack(side=tk.LEFT, padx=2)
+        
+        # Copy button
+        copy_button = ttk.Button(
+            auth_entry_frame,
+            text="📋 Copy",
+            width=8,
+            command=self.copy_auth_key
+        )
+        copy_button.pack(side=tk.LEFT, padx=2)
         
         # Button to regenerate key
         ttk.Button(
@@ -689,6 +713,30 @@ class BackupApp:
                                    "You may need to run this application as an Administrator or "
                                    f"manually allow TCP traffic on port {port}.")
 
+    def toggle_auth_key_visibility(self):
+        """Toggle visibility of the authentication key"""
+        if self.auth_key_visible:
+            self.auth_key_entry.config(show="•")
+            self.auth_key_visible = False
+        else:
+            self.auth_key_entry.config(show="")
+            self.auth_key_visible = True
+    
+    def copy_auth_key(self):
+        """Copy the authentication key to clipboard"""
+        auth_key = self.auth_key_var.get()
+        if auth_key and auth_key != "Not generated":
+            self.root.clipboard_clear()
+            self.root.clipboard_append(auth_key)
+            self.log_message("Authentication key copied to clipboard")
+            
+            # Visual feedback
+            original_text = self.show_auth_button.cget("text")
+            self.show_auth_button.config(text="✓")
+            self.root.after(1000, lambda: self.show_auth_button.config(text=original_text))
+        else:
+            messagebox.showinfo("No Key", "No authentication key available to copy. Enable remote control first.")
+    
     def generate_new_auth_key(self):
         """Generate a new authentication key"""
         if not self.remote_enabled or not self.remote_server:
