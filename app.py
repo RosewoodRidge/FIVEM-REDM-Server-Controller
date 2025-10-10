@@ -948,25 +948,49 @@ class BackupApp:
         self.log_message("Checking for application updates...")
         result = check_for_updates(self.root, force=True)
         if result:
-            # If update is ready to install, quit the app
+            # If update is ready to install, completely exit the app
+            self.log_message("Update available, application will restart after update...")
             self.on_close()
-    
+            # Force exit to ensure the app fully closes
+            self.root.after(500, lambda: os._exit(0))
+
     def check_for_app_updates(self):
         """Check for updates on startup"""
         # Run in a separate thread to avoid blocking the UI
         threading.Thread(
-            target=lambda: check_for_updates(self.root),
+            target=self._check_updates_thread,
             daemon=True
         ).start()
-    
+        
+    def _check_updates_thread(self):
+        """Thread function to check for updates"""
+        result = check_for_updates(self.root)
+        if result:
+            # Schedule app exit for update
+            self.root.after(0, lambda: self.log_message("Update available, application will restart after update..."))
+            self.root.after(1000, self.on_close)
+            self.root.after(1500, lambda: os._exit(0))
+
     def schedule_update_check(self):
         """Schedule periodic update checks"""
         if self.running:
-            # Check for updates every 24 hours
-            check_for_updates(self.root)
+            # Run update check in thread to avoid UI freezing
+            threading.Thread(
+                target=self._scheduled_update_check,
+                daemon=True
+            ).start()
             # Schedule next check
             self.root.after(24 * 60 * 60 * 1000, self.schedule_update_check)
-    
+        
+    def _scheduled_update_check(self):
+        """Run a scheduled update check"""
+        result = check_for_updates(self.root)
+        if result and self.running:
+            # Schedule app exit for update
+            self.root.after(0, lambda: self.log_message("Update available, application will restart after update..."))
+            self.root.after(1000, self.on_close)
+            self.root.after(1500, lambda: os._exit(0))
+
     def on_close(self):
         """Clean up when the window is closed"""
         self.running = False
