@@ -25,12 +25,13 @@ from txadmin import (
     auto_update_txadmin, check_for_txadmin_updates, find_fxserver_processes,
     start_fxserver, stop_fxserver
 )
+from update import check_for_updates, CURRENT_VERSION
 
 class BackupApp:
     def __init__(self, root):
         self.root = root
         self.root.title("FIVEM & REDM Server Controller and Backup App")
-        self.root.geometry("850x650")
+        self.root.geometry("850x800")
         self.root.configure(bg=COLORS['bg'])
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         
@@ -427,14 +428,23 @@ class BackupApp:
         )
         self.status_label.pack(side=tk.LEFT)
         
-        # Version label (kept this from the original code)
+        # Version label (now with version from CURRENT_VERSION imported from update.py)
         version_label = ttk.Label(
             status_bar, 
-            text="v2.1", 
+            text=f"v{CURRENT_VERSION}", 
             foreground=COLORS['text_secondary'],
             font=('Segoe UI', 9)
         )
         version_label.pack(side=tk.RIGHT)
+        
+        # Check for updates button
+        update_check_btn = ttk.Button(
+            status_bar,
+            text="Check for Updates",
+            command=self.manual_update_check,
+            style="Link.TButton"
+        )
+        update_check_btn.pack(side=tk.RIGHT, padx=10)
         
         # Initialize UI updates
         self.backup_files = []
@@ -455,6 +465,12 @@ class BackupApp:
         self.scheduler_thread = threading.Thread(target=self.backup_scheduler, daemon=True)
         self.running = True
         self.scheduler_thread.start()
+        
+        # Check for updates on startup
+        self.check_for_app_updates()
+        
+        # Schedule regular update checks
+        self.schedule_update_check()
     
     def update_backup_list(self):
         """Update the list of available backups"""
@@ -926,6 +942,30 @@ class BackupApp:
                 self.server_log(f"Failed to restart server: {start_message}")
         
         threading.Thread(target=do_restart, daemon=True).start()
+    
+    def manual_update_check(self):
+        """Manually check for updates when button is clicked"""
+        self.log_message("Checking for application updates...")
+        result = check_for_updates(self.root, force=True)
+        if result:
+            # If update is ready to install, quit the app
+            self.on_close()
+    
+    def check_for_app_updates(self):
+        """Check for updates on startup"""
+        # Run in a separate thread to avoid blocking the UI
+        threading.Thread(
+            target=lambda: check_for_updates(self.root),
+            daemon=True
+        ).start()
+    
+    def schedule_update_check(self):
+        """Schedule periodic update checks"""
+        if self.running:
+            # Check for updates every 24 hours
+            check_for_updates(self.root)
+            # Schedule next check
+            self.root.after(24 * 60 * 60 * 1000, self.schedule_update_check)
     
     def on_close(self):
         """Clean up when the window is closed"""

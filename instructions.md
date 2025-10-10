@@ -13,9 +13,9 @@ This comprehensive utility helps you manage FiveM and RedM servers with automate
 
 Run the following command in Command Prompt or PowerShell to install required packages:
 
-```
+
 pip install requests beautifulsoup4 psutil
-```
+
 
 ### Step 3: Configure the Application
 
@@ -23,7 +23,7 @@ pip install requests beautifulsoup4 psutil
 2. Update the following settings:
 
 #### Database Configuration
-```python
+
 DB_HOST = 'localhost'  # Your MySQL server hostname
 DB_USER = 'your_db_user'  # MySQL username
 DB_PASSWORD = 'your_password'  # MySQL password
@@ -31,31 +31,34 @@ DB_NAME = 'your_db_name'  # Database to backup
 BACKUP_DIR = 'C:\\path\\to\\database\\backups'  # Where to store database backups
 MYSQLDUMP_PATH = 'C:\\xampp\\mysql\\bin\\mysqldump.exe'  # Path to mysqldump.exe
 MYSQL_PATH = 'C:\\xampp\\mysql\\bin\\mysql.exe'  # Path to mysql.exe
-```
+
 
 #### Server Backup Configuration
-```python
+
 SERVER_FOLDER = 'C:\\path\\to\\server\\resources'  # FiveM/RedM resources folder
 SERVER_BACKUP_DIR = 'C:\\path\\to\\server\\backups'  # Where to store server backups
 SERVER_BACKUP_KEEP_COUNT = 10  # Number of server backups to keep
-```
+
 
 #### TxAdmin Configuration
-```python
+
 TXADMIN_SERVER_DIR = 'C:\\path\\to\\server'  # Main server directory
 TXADMIN_BACKUP_DIR = 'C:\\path\\to\\txadmin\\backups'  # Where to store TxAdmin backups
 TXADMIN_DOWNLOAD_DIR = 'C:\\path\\to\\downloads'  # Where to download TxAdmin updates
 SEVEN_ZIP_PATH = 'C:\\Program Files\\7-Zip\\7z.exe'  # Path to 7-Zip executable
-```
+
 
 #### Backup Schedule
-```python
+
 DB_BACKUP_HOURS = [3, 15]  # Database backups at 3 AM and 3 PM
 SERVER_BACKUP_HOURS = [3]  # Server backups at 3 AM only
 BACKUP_MINUTE = 0  # Minute of the hour to run backups
-```
 
 ## Features & Usage
+
+#### Start the App
+
+Open the folder where the application was extracted and double click `app.py`
 
 ### Server Control
 
@@ -106,31 +109,6 @@ The "Activity Log" tab shows a chronological record of all operations performed 
 - Server start/stop events
 - TxAdmin updates
 - Error messages
-
-## Running as a Service
-
-To ensure the utility runs automatically when the server starts:
-
-### Option 1: Windows Task Scheduler
-
-1. Open Task Scheduler
-2. Create a new task with these settings:
-   - Run whether user is logged on or not
-   - Trigger: At startup
-   - Action: Start program
-   - Program/script: `C:\path\to\pythonw.exe`
-   - Arguments: `"C:\path\to\app.py"`
-   - Start in: `"C:\path\to\application\directory"`
-
-### Option 2: Create a Windows Service
-
-Use NSSM (Non-Sucking Service Manager) to create a Windows service:
-
-1. Download NSSM from [nssm.cc](http://nssm.cc/download)
-2. Run: `nssm.exe install FiveM-RedM-Controller`
-3. Path: `C:\path\to\pythonw.exe`
-4. Arguments: `"C:\path\to\app.py"`
-5. Directory: `"C:\path\to\application\directory"`
 
 ## Troubleshooting
 

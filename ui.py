@@ -42,6 +42,17 @@ def apply_styles():
               background=[('active', COLORS['accent_hover'])],
               foreground=[('active', COLORS['button_text'])])
     
+    # Link-style button for update checking
+    style.configure("Link.TButton", 
+                    background=COLORS['bg'],
+                    foreground=COLORS['accent'],
+                    padding=2,
+                    font=('Segoe UI', 9, 'underline'),
+                    borderwidth=0)
+    style.map("Link.TButton",
+              background=[('active', COLORS['bg'])],
+              foreground=[('active', COLORS['accent_hover'])])
+    
     # Entry styling with black text for better visibility on light backgrounds
     style.configure("TEntry", 
                     fieldbackground=COLORS['panel'],
