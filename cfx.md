@@ -59,7 +59,7 @@ Detailed instructions are included in the `instructions.md` file within the down
 
 ## Download
 
-[GitHub Repository](https://github.com/yourusername/fivem-redm-server-controller)
+[GitHub Repository](https://github.com/RosewoodRidge/FIVEM-REDM-Server-Controller)
 
 ## Suggestions & Support
 Feel free to suggest features or report issues on GitHub. I'm actively maintaining this utility and appreciate all feedback!
