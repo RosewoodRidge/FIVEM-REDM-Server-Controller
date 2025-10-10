@@ -1,0 +1,647 @@
+import json
+import socket
+import secrets
+import logging
+import hashlib
+import time
+import base64
+import threading
+from datetime import datetime
+
+# Set up specific logger for remote operations
+remote_logger = logging.getLogger('remote_control')
+remote_logger.setLevel(logging.DEBUG)
+
+# Add file handler if not already added
+if not remote_logger.handlers:
+    # Create logs directory if it doesn't exist
+    import os
+    logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    
+    # Create file handler
+    fh = logging.FileHandler(os.path.join(logs_dir, 'remote_control.log'))
+    fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    remote_logger.addHandler(fh)
+
+# Remote protocol constants
+DEFAULT_PORT = 40100
+BUFFER_SIZE = 4096
+TIMEOUT = 10  # socket timeout in seconds
+HEARTBEAT_INTERVAL = 5  # seconds between heartbeat messages
+
+# Command types
+CMD_AUTH = "AUTH"  # Add explicit AUTH command type
+CMD_HEARTBEAT = "HEARTBEAT"
+CMD_SERVER_STATUS = "SERVER_STATUS"
+CMD_START_SERVER = "START_SERVER"
+CMD_STOP_SERVER = "STOP_SERVER"
+CMD_RESTART_SERVER = "RESTART_SERVER"
+CMD_BACKUP_DB = "BACKUP_DB"
+CMD_RESTORE_DB = "RESTORE_DB"
+CMD_GET_DB_BACKUPS = "GET_DB_BACKUPS"
+CMD_BACKUP_SERVER = "BACKUP_SERVER"
+CMD_RESTORE_SERVER = "RESTORE_SERVER"
+CMD_GET_SERVER_BACKUPS = "GET_SERVER_BACKUPS"
+CMD_UPDATE_TXADMIN = "UPDATE_TXADMIN"
+CMD_RESTORE_TXADMIN = "RESTORE_TXADMIN"
+CMD_GET_TXADMIN_BACKUPS = "GET_TXADMIN_BACKUPS"
+CMD_LOG_MESSAGE = "LOG_MESSAGE"
+
+# Response status codes
+STATUS_OK = "OK"
+STATUS_ERROR = "ERROR"
+STATUS_AUTH_REQUIRED = "AUTH_REQUIRED"
+STATUS_INVALID_AUTH = "INVALID_AUTH"
+STATUS_AUTH_FAILED = "AUTH_FAILED"
+
+class RemoteMessage:
+    """Class to represent remote control messages"""
+    
+    def __init__(self, command, data=None, status=None, message=None):
+        self.command = command
+        self.data = data or {}
+        self.status = status
+        self.message = message
+        self.timestamp = datetime.now().isoformat()
+    
+    def to_json(self):
+        """Convert message to JSON string"""
+        return json.dumps({
+            "command": self.command,
+            "data": self.data,
+            "status": self.status,
+            "message": self.message,
+            "timestamp": self.timestamp
+        })
+    
+    @classmethod
+    def from_json(cls, json_str):
+        """Create a RemoteMessage from a JSON string"""
+        try:
+            data = json.loads(json_str)
+            msg = cls(
+                command=data.get("command"),
+                data=data.get("data", {}),
+                status=data.get("status"),
+                message=data.get("message")
+            )
+            msg.timestamp = data.get("timestamp", datetime.now().isoformat())
+            return msg
+        except json.JSONDecodeError as e:
+            remote_logger.error(f"Failed to decode message: {e}")
+            return None
+
+def generate_auth_key():
+    """Generate a random authentication key"""
+    # Generate a 24-character secure random string
+    token = secrets.token_hex(12)  # 12 bytes = 24 hex characters
+    
+    # Format it with dashes for easier reading
+    formatted_token = f"{token[:4]}-{token[4:8]}-{token[8:12]}-{token[12:16]}-{token[16:]}"
+    return formatted_token
+
+def hash_auth_key(key, salt=None):
+    """Hash the authentication key for secure storage/comparison"""
+    if salt is None:
+        salt = secrets.token_bytes(16)
+    
+    # Use PBKDF2 with SHA-256 for secure hashing
+    key_hash = hashlib.pbkdf2_hmac(
+        'sha256',
+        key.encode('utf-8'),
+        salt,
+        100000  # Number of iterations
+    )
+    
+    # Return the salt and hash
+    return salt, key_hash
+
+def verify_auth_key(input_key, stored_salt, stored_hash):
+    """Verify an authentication key against a stored hash"""
+    _, input_hash = hash_auth_key(input_key, stored_salt)
+    return input_hash == stored_hash
+
+class RemoteServer:
+    """TCP server to handle remote connections to the main app"""
+    
+    def __init__(self, port=DEFAULT_PORT, command_handler=None):
+        self.port = port
+        self.command_handler = command_handler
+        self.server_socket = None
+        self.running = False
+        self.client_sockets = {}  # {socket: (address, auth_status)}
+        self.auth_key = generate_auth_key()
+        self.auth_salt, self.auth_hash = hash_auth_key(self.auth_key)
+        self.debug_mode = True  # Add missing debug_mode attribute
+        remote_logger.info(f"Generated authentication key: {self.auth_key}")
+    
+    def hash_auth_key(self, key, salt=None):
+        """Hash the authentication key with a random salt"""
+        return hash_auth_key(key, salt)  # Use the global function
+    
+    def start(self):
+        """Start the server in a separate thread"""
+        if self.running:
+            return False
+        
+        try:
+            # Check if port is already in use
+            test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_socket.settimeout(1)
+            result = test_socket.connect_ex(('localhost', self.port))
+            test_socket.close()
+            
+            if result == 0:
+                logging.error(f"Port {self.port} is already in use")
+                return False
+            
+            # Create server socket
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            
+            # Critical fix: Bind to all network interfaces instead of just localhost
+            self.server_socket.bind(('0.0.0.0', self.port))
+            self.server_socket.listen(5)
+            self.running = True
+            
+            # Start thread to listen for connections
+            self.listen_thread = threading.Thread(target=self._listen_for_connections, daemon=True)
+            self.listen_thread.start()
+            
+            logging.info(f"Remote control server started on port {self.port}")
+            logging.info(f"Make sure Windows Firewall allows connections on port {self.port}")
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to start remote server: {str(e)}")
+            self.server_socket = None
+            return False
+    
+    def stop(self):
+        """Stop the server"""
+        self.running = False
+        
+        # Close all client connections
+        for sock in list(self.client_sockets.keys()):
+            try:
+                sock.close()
+            except:
+                pass
+        self.client_sockets.clear()
+        
+        # Close server socket
+        if self.server_socket:
+            try:
+                self.server_socket.close()
+            except:
+                pass
+            self.server_socket = None
+        
+        logging.info("Remote control server stopped")
+    
+    def _listen_for_connections(self):
+        """Thread function to listen for incoming connections"""
+        self.server_socket.settimeout(1)  # 1 second timeout for accept() to allow checking self.running
+        
+        while self.running:
+            try:
+                client_socket, address = self.server_socket.accept()
+                logging.info(f"New connection from {address[0]}:{address[1]}")
+                
+                # Set up client socket
+                client_socket.settimeout(30)  # 30 seconds timeout for client operations
+                self.client_sockets[client_socket] = (address, False)  # Not authenticated yet
+                
+                # Start thread to handle this client
+                client_thread = threading.Thread(
+                    target=self._handle_client,
+                    args=(client_socket, address),
+                    daemon=True
+                )
+                client_thread.start()
+                
+            except socket.timeout:
+                # This is expected due to the timeout on accept()
+                continue
+            except Exception as e:
+                if self.running:  # Only log if we're supposed to be running
+                    logging.error(f"Error accepting connection: {str(e)}")
+                    time.sleep(1)  # Avoid tight loop if there's an error
+    
+    def _handle_client(self, client_socket, address):
+        """Handle communication with a client"""
+        logging.info(f"Handling connection from {address[0]}:{address[1]}")
+        
+        try:
+            # Set a longer timeout during authentication
+            client_socket.settimeout(30)
+            
+            # Exchange authentication
+            auth_required = RemoteMessage(
+                command="AUTH",
+                status=STATUS_AUTH_REQUIRED,
+                message="Authentication required"
+            )
+            logging.info(f"Sending auth request to {address[0]}:{address[1]}")
+            self._send_message(client_socket, auth_required)
+            
+            # Wait for auth response
+            logging.info(f"Waiting for auth response from {address[0]}:{address[1]}")
+            auth_response = self._receive_message(client_socket)
+            if not auth_response or auth_response.command != "AUTH":
+                logging.warning(f"Invalid authentication response from {address[0]}:{address[1]}")
+                client_socket.close()
+                if client_socket in self.client_sockets:
+                    del self.client_sockets[client_socket]
+                return
+            
+            # Verify auth key
+            logging.info(f"Received auth response from {address[0]}:{address[1]}")
+            provided_key = auth_response.data.get("auth_key", "")
+            if self.verify_auth_key(provided_key):
+                logging.info(f"Client authenticated: {address[0]}:{address[1]}")
+                self.client_sockets[client_socket] = (address, True)  # Mark as authenticated
+                
+                auth_success = RemoteMessage(
+                    command="AUTH",
+                    status=STATUS_OK,
+                    message="Authentication successful"
+                )
+                self._send_message(client_socket, auth_success)
+                
+                # Process commands from this client
+                self._process_client_commands(client_socket, address)
+            else:
+                logging.warning(f"Authentication failed for {address[0]}:{address[1]}")
+                auth_failed = RemoteMessage(
+                    command="AUTH",
+                    status=STATUS_AUTH_FAILED,
+                    message="Authentication failed"
+                )
+                self._send_message(client_socket, auth_failed)
+                client_socket.close()
+                if client_socket in self.client_sockets:
+                    del self.client_sockets[client_socket]
+        
+        except Exception as e:
+            logging.error(f"Error handling client {address[0]}:{address[1]}: {str(e)}")
+            try:
+                client_socket.close()
+            except:
+                pass
+            if client_socket in self.client_sockets:
+                del self.client_sockets[client_socket]
+    
+    def verify_auth_key(self, provided_key):
+        """Verify the authentication key provided by a client"""
+        try:
+            # First check if keys match directly (for simpler testing)
+            if provided_key == self.auth_key:
+                return True
+                
+            # Then do the proper secure verification
+            key_hash = hashlib.pbkdf2_hmac(
+                'sha256',
+                provided_key.encode('utf-8'),
+                self.auth_salt,
+                100000
+            )
+            return key_hash == self.auth_hash
+        except Exception as e:
+            logging.error(f"Auth verification error: {str(e)}")
+            return False
+            
+    def _process_client_commands(self, client_socket, address):
+        """Process commands from an authenticated client"""
+        while self.running:
+            try:
+                message = self._receive_message(client_socket)
+                if not message:
+                    break
+                
+                logging.info(f"Received command {message.command} from {address[0]}:{address[1]}")
+                
+                if self.command_handler:
+                    response = self.command_handler(message)
+                    self._send_message(client_socket, response)
+                else:
+                    response = RemoteMessage(
+                        command=message.command,
+                        status=STATUS_ERROR,
+                        message="No command handler registered"
+                    )
+                    self._send_message(client_socket, response)
+            
+            except socket.timeout:
+                # Send a ping to keep the connection alive
+                ping = RemoteMessage(command="PING")
+                try:
+                    self._send_message(client_socket, ping)
+                except:
+                    break
+            
+            except Exception as e:
+                logging.error(f"Error processing commands from {address[0]}:{address[1]}: {str(e)}")
+                break
+        
+        # Clean up when done
+        try:
+            client_socket.close()
+        except:
+            pass
+        if client_socket in self.client_sockets:
+            del self.client_sockets[client_socket]
+        logging.info(f"Client disconnected: {address[0]}:{address[1]}")
+    
+    def _send_message(self, client_socket, message):
+        """Send a message to a client"""
+        try:
+            json_str = message.to_json()
+            data = json_str.encode('utf-8')
+            
+            # Send message length as 4 bytes
+            length = len(data)
+            client_socket.sendall(length.to_bytes(4, byteorder='big'))
+            
+            # Send the actual message
+            client_socket.sendall(data)
+            return True
+        
+        except Exception as e:
+            if self.debug_mode:
+                logging.error(f"Error sending message: {str(e)}")
+            return False
+    
+    def _receive_message(self, client_socket):
+        """Receive a message from a client"""
+        try:
+            # Get message length (4 bytes)
+            length_bytes = client_socket.recv(4)
+            if not length_bytes:
+                return None
+            
+            length = int.from_bytes(length_bytes, byteorder='big')
+            
+            # Get the message data
+            data = b''
+            while len(data) < length:
+                chunk = client_socket.recv(min(4096, length - len(data)))
+                if not chunk:
+                    return None
+                data += chunk
+            
+            # Parse the message
+            json_str = data.decode('utf-8')
+            return RemoteMessage.from_json(json_str)
+        
+        except Exception as e:
+            if self.debug_mode:
+                logging.error(f"Error receiving message: {str(e)}")
+            return None
+    
+    def broadcast_message(self, message):
+        """Broadcast a message to all authenticated clients"""
+        for client_socket, (address, is_authenticated) in list(self.client_sockets.items()):
+            if is_authenticated:
+                try:
+                    self._send_message(client_socket, message)
+                except:
+                    # Client probably disconnected
+                    try:
+                        client_socket.close()
+                    except:
+                        pass
+                    if client_socket in self.client_sockets:
+                        del self.client_sockets[client_socket]
+
+class RemoteClient:
+    """Client for connecting to the remote control server"""
+    
+    def __init__(self, host=None, port=40100, auth_key=None, message_handler=None, server_ip=None):
+        # Support both 'host' and 'server_ip' parameter names for backward compatibility
+        self.host = host if host is not None else server_ip
+        if not self.host:
+            raise ValueError("Host or server_ip must be provided.")
+        self.port = port
+        self.auth_key = auth_key
+        self.message_handler = message_handler
+        
+        self.client_socket = None
+        self.connected = False
+        self.authenticated = False
+        self.receive_thread = None
+        self.running = False
+        
+        # Setup logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+    
+    def connect(self):
+        """Connect to the remote server and authenticate."""
+        if self.connected:
+            return True
+
+        if not self.auth_key:
+            logging.error("Authentication key is not set.")
+            return False
+            
+        try:
+            logging.info(f"Connecting to server at {self.host}:{self.port}")
+            
+            # Create socket
+            self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.client_socket.settimeout(30)  # Increase timeout to 30 seconds
+            
+            # Connect to server
+            self.client_socket.connect((self.host, self.port))
+            self.connected = True
+            self.running = True
+            
+            # Authentication is now part of the connect flow
+            if not self._handle_authentication():
+                self.disconnect()
+                return False
+
+            # Start receive thread ONLY after successful authentication
+            self.receive_thread = threading.Thread(target=self._receive_messages, daemon=True)
+            self.receive_thread.start()
+            
+            return True
+            
+        except socket.timeout:
+            logging.error("Failed to connect to server: timed out")
+            self.disconnect()
+            return False
+        except Exception as e:
+            logging.error(f"Failed to connect to server: {str(e)}")
+            self.disconnect()
+            return False
+    
+    def _handle_authentication(self):
+        """Process authentication with the server"""
+        try:
+            # Wait for auth request with longer timeout
+            logging.info("Waiting for authentication request from server")
+            auth_request = self._receive_message_sync(timeout=30)
+            if not auth_request:
+                logging.error("No authentication request received from server")
+                return False
+            
+            # Use direct string comparison instead of constants to avoid undefined references
+            if auth_request.command != "AUTH" or auth_request.status != "AUTH_REQUIRED":
+                logging.error(f"Invalid authentication protocol - got command: {auth_request.command}, status: {auth_request.status}")
+                return False
+            
+            # Send auth response - use string literal for command type
+            logging.info("Sending authentication key to server")
+            auth_response = RemoteMessage(
+                command="AUTH",  # Direct string literal instead of CMD_AUTH
+                data={"auth_key": self.auth_key}
+            )
+            if not self.send_message(auth_response):
+                logging.error("Failed to send authentication response")
+                return False
+            
+            # Wait for auth result with longer timeout
+            logging.info("Waiting for authentication result")
+            auth_result = self._receive_message_sync(timeout=30)
+            if not auth_result:
+                logging.error("No authentication result received")
+                return False
+            
+            # Use string literal for comparison
+            if auth_result.command != "AUTH":
+                logging.error(f"Invalid authentication response - got command: {auth_result.command}")
+                return False
+            
+            # Use string literal for comparison
+            if auth_result.status != "OK":
+                logging.error(f"Authentication failed: {auth_result.message}")
+                return False
+            
+            self.authenticated = True
+            logging.info("Successfully authenticated with server")
+            return True
+            
+        except Exception as e:
+            error_message = f"Authentication error: {str(e)}"
+            logging.error(error_message)
+            return False
+    
+    def disconnect(self):
+        """Disconnect from the server"""
+        self.running = False
+        self.connected = False
+        self.authenticated = False
+        
+        if self.client_socket:
+            try:
+                self.client_socket.close()
+            except:
+                pass
+            self.client_socket = None
+            
+        logging.info("Disconnected from server")
+    
+    def _receive_messages(self):
+        """Background thread to receive messages"""
+        while self.running and self.client_socket:
+            try:
+                message = self._receive_message_internal()
+                if not message:
+                    break
+                
+                # Process received message
+                if self.message_handler:
+                    self.message_handler(message)
+                
+            except socket.timeout:
+                # This is fine, just retry
+                continue
+            except Exception as e:
+                if self.running:  # Only log if we're supposed to be running
+                    logging.error(f"Error receiving message: {str(e)}")
+                break
+        
+        # If we exited the loop and still running, connection was lost
+        if self.running:
+            self.root.after(0, lambda: self._update_connection_status(False, "Connection to server lost"))
+    
+    def _receive_message_sync(self, timeout=10):
+        """Synchronously receive a message with timeout"""
+        if not self.client_socket:
+            return None
+            
+        original_timeout = self.client_socket.gettimeout()
+        try:
+            self.client_socket.settimeout(timeout)
+            return self._receive_message_internal()
+        finally:
+            if self.client_socket:
+                self.client_socket.settimeout(original_timeout)
+    
+    def _receive_message_internal(self):
+        """Internal method to receive a message"""
+        if not self.client_socket:
+            return None
+            
+        try:
+            # Get message length (4 bytes)
+            length_bytes = self.client_socket.recv(4)
+            if not length_bytes:
+                return None
+            
+            length = int.from_bytes(length_bytes, byteorder='big')
+            
+            # Get the message data
+            data = b''
+            while len(data) < length:
+                chunk = self.client_socket.recv(min(4096, length - len(data)))
+                if not chunk:
+                    return None
+                data += chunk
+            
+            # Parse the message
+            json_str = data.decode('utf-8')
+            return RemoteMessage.from_json(json_str)
+            
+        except Exception as e:
+            if self.running:  # Only log if we're supposed to be running
+                logging.error(f"Error receiving message: {str(e)}")
+            return None
+    
+    def send_message(self, message):
+        """Send a message to the server. Renamed from _send_message for public use."""
+        if not self.client_socket or not self.connected:
+            logging.error("Cannot send message, not connected.")
+            return False
+            
+        try:
+            json_str = message.to_json()
+            data = json_str.encode('utf-8')
+            
+            # Send message length as 4 bytes
+            length = len(data)
+            self.client_socket.sendall(length.to_bytes(4, byteorder='big'))
+            
+            # Send the actual message
+            self.client_socket.sendall(data)
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error sending message: {str(e)}")
+            self.disconnect()
+            return False
+    
+    def send_command(self, command, data=None):
+        """Sends a command. Assumes connection is already established."""
+        if not self.connected or not self.authenticated:
+            logging.error("Cannot send command, not connected or authenticated.")
+            return
+
+        message = RemoteMessage(command=command, data=data or {})
+        self.send_message(message)

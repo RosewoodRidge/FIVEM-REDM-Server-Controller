@@ -58,7 +58,11 @@ BACKUP_MINUTE = 0  # Minute of the hour to run backups
 
 #### Start the App
 
-Open the folder where the application was extracted and double click `app.py`
+To run the applications without a console window, use the provided launcher files:
+- **For the main server controller:** Double-click `start.bat`
+- **For the remote client:** Double-click `start_remote.bat`
+
+These will launch the applications in the background. If you need to see console output for debugging, you can still run the `app.py` or `remote_app.py` files directly with `python.exe`.
 
 ### Server Control
 
@@ -70,6 +74,32 @@ The "Server Control" tab allows you to:
 - **Restart Server**: Stop and restart FXServer.exe
 
 Command output is displayed in real-time in the window.
+
+### Remote Control
+
+The utility includes a remote client that allows you to manage your server from another computer on the network.
+
+#### Enabling Remote Access on the Server
+
+1.  In the main application, go to the **Remote Control** tab.
+2.  Check the **Enable Remote Control** box.
+3.  The server will start, and the **Server IP**, **Port**, and **Authentication Key** will be displayed.
+4.  The application will attempt to create a Windows Firewall rule automatically. If it fails (e.g., due to permissions), you may need to manually allow incoming TCP connections on the specified port.
+
+#### Connecting with the Remote Client
+
+1.  On a different computer, run `start_remote.bat`.
+2.  Enter the **Server IP**, **Port**, and **Authentication Key** provided by the main application.
+3.  Click **Connect**. Your connection details will be saved for the next time you open the remote client.
+4.  Once connected, you will have access to the server management tabs.
+
+#### Remote Features
+
+The remote client provides access to most of the main application's features, including:
+-   **Server Control**: Start, stop, and restart the server.
+-   **Backups**: Run and restore server, database, and TxAdmin backups.
+-   **TxAdmin Updates**: Initiate a TxAdmin update.
+-   **Activity Log**: View logs from the server and send messages.
 
 ### Server Backup
 

@@ -12,11 +12,13 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 import logging
+import socket
+import subprocess
 
 # Import from other modules
 from config import *
 from ui import apply_styles, ModernScrolledText
-from utils import restart_application, calculate_next_backup_time
+from utils import restart_application, calculate_next_backup_time, add_firewall_rule
 from database import create_backup, restore_backup, delete_old_backups, get_backup_files
 from server import backup_server_folder, restore_server_backup, delete_old_server_backups, get_server_backup_files
 from txadmin import (
@@ -26,6 +28,15 @@ from txadmin import (
     start_fxserver, stop_fxserver
 )
 from update import check_for_updates, CURRENT_VERSION
+from remote_protocol import RemoteServer, RemoteMessage, STATUS_OK, STATUS_ERROR
+from remote_protocol import CMD_SERVER_STATUS, CMD_START_SERVER, CMD_STOP_SERVER, CMD_RESTART_SERVER
+from remote_protocol import CMD_BACKUP_DB, CMD_RESTORE_DB, CMD_GET_DB_BACKUPS
+from remote_protocol import CMD_BACKUP_SERVER, CMD_RESTORE_SERVER, CMD_GET_SERVER_BACKUPS
+from remote_protocol import CMD_UPDATE_TXADMIN, CMD_RESTORE_TXADMIN, CMD_GET_TXADMIN_BACKUPS
+from remote_protocol import CMD_LOG_MESSAGE
+
+# Import settings manager
+from settings import load_settings, save_settings, update_setting, get_setting
 
 class BackupApp:
     def __init__(self, root):
@@ -34,6 +45,14 @@ class BackupApp:
         self.root.geometry("850x800")
         self.root.configure(bg=COLORS['bg'])
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        # Set running and remote flags early to avoid AttributeError
+        self.running = True
+        self.remote_server = None
+        self.remote_enabled = False
+        
+        # Load settings early before they're needed
+        self.settings = load_settings()
         
         # Apply modern styling
         apply_styles()
@@ -463,7 +482,6 @@ class BackupApp:
         
         # Initialize the scheduler thread
         self.scheduler_thread = threading.Thread(target=self.backup_scheduler, daemon=True)
-        self.running = True
         self.scheduler_thread.start()
         
         # Check for updates on startup
@@ -471,70 +489,685 @@ class BackupApp:
         
         # Schedule regular update checks
         self.schedule_update_check()
+        
+        # Set up remote control server
+        # self.remote_server = None  # Already initialized at the start
+        # self.remote_enabled = False  # Already initialized at the start
+        
+        # Add a Remote Control tab
+        self.remote_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.remote_tab, text="Remote Control")
+        
+        # Remote control settings
+        remote_control_frame = ttk.LabelFrame(self.remote_tab, text="Remote Control Settings")
+        remote_control_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Enable/disable remote control
+        self.remote_enabled_var = tk.BooleanVar(value=self.settings["remote_control"]["enabled"])
+        ttk.Checkbutton(
+            remote_control_frame,
+            text="Enable Remote Control",
+            variable=self.remote_enabled_var,
+            command=self.toggle_remote_control
+        ).pack(anchor=tk.W, pady=10, padx=10)
+        
+        # Connection info section
+        connection_frame = ttk.LabelFrame(self.remote_tab, text="Connection Information")
+        connection_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # IP address info
+        ip_frame = ttk.Frame(connection_frame)
+        ip_frame.pack(fill=tk.X, pady=5, padx=10)
+        
+        ttk.Label(
+            ip_frame,
+            text="Server IP:",
+            width=15
+        ).pack(side=tk.LEFT)
+        
+        self.ip_var = tk.StringVar(value="Detecting...")
+        ttk.Label(
+            ip_frame,
+            textvariable=self.ip_var,
+            font=('Segoe UI', 10, 'bold')
+        ).pack(side=tk.LEFT)
+        
+        # Port info
+        port_frame = ttk.Frame(connection_frame)
+        port_frame.pack(fill=tk.X, pady=5, padx=10)
+        
+        ttk.Label(
+            port_frame,
+            text="Port:",
+            width=15
+        ).pack(side=tk.LEFT)
+        
+        self.port_var = tk.StringVar(value=str(self.settings["remote_control"]["port"]))
+        port_entry = ttk.Entry(
+            port_frame,
+            textvariable=self.port_var,
+            width=10
+        )
+        port_entry.pack(side=tk.LEFT)
+        
+        # Auth key section
+        auth_frame = ttk.LabelFrame(self.remote_tab, text="Authentication Key")
+        auth_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        saved_auth_key = self.settings["remote_control"]["auth_key"] or "Not generated"
+        self.auth_key_var = tk.StringVar(value=saved_auth_key)
+        
+        ttk.Label(
+            auth_frame,
+            text="Connect using this authentication key:"
+        ).pack(anchor=tk.W, pady=(10, 5), padx=10)
+        
+        # Show auth key in a readonly entry
+        auth_key_entry = ttk.Entry(
+            auth_frame,
+            textvariable=self.auth_key_var,
+            width=40,
+            state="readonly"
+        )
+        auth_key_entry.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Button to regenerate key
+        ttk.Button(
+            auth_frame,
+            text="Generate New Key",
+            command=self.generate_new_auth_key
+        ).pack(pady=10)
+        
+        # Connected clients section
+        clients_frame = ttk.LabelFrame(self.remote_tab, text="Connected Clients")
+        clients_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Scrolled text widget for connected clients list
+        self.clients_list = ModernScrolledText(
+            clients_frame, 
+            wrap=tk.WORD, 
+            height=10
+        )
+        self.clients_list.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.clients_list.config(state=tk.DISABLED)
+        self.clients_list.insert(tk.END, "No clients connected")
+        
+        # Get and display local IP address
+        self.detect_ip_address()
+        
+        # If remote control was previously enabled, start it
+        if self.remote_enabled_var.get():
+            # Use after to make sure UI is fully initialized
+            self.root.after(1000, self.toggle_remote_control)
     
-    def update_backup_list(self):
-        """Update the list of available backups"""
-        self.backup_files = get_backup_files()
-        
-        self.backup_list.config(state=tk.NORMAL)
-        self.backup_list.delete(1.0, tk.END)
-        
-        if not self.backup_files:
-            self.backup_list.insert(tk.END, "No backups found.")
+    def detect_ip_address(self):
+        """Detect and display the local IP address"""
+        try:
+            # This is a common method to get the local IP address
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Doesn't actually connect but helps determine which interface to use
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            self.ip_var.set(local_ip)
+        except Exception as e:
+            self.ip_var.set("Could not detect IP")
+            self.log_message(f"Failed to detect local IP: {e}")
+    
+    def toggle_remote_control(self):
+        """Enable or disable remote control"""
+        if self.remote_enabled_var.get():
+            # Enable remote control
+            try:
+                port = int(self.port_var.get())
+                if not (1024 <= port <= 65535):
+                    raise ValueError("Port must be between 1024 and 65535")
+                
+                # Save port to settings
+                update_setting("remote_control", "port", port)
+                
+                # Use saved auth key if one exists
+                saved_auth_key = self.settings["remote_control"]["auth_key"]
+                
+                self.remote_server = RemoteServer(port=port, command_handler=self.handle_remote_command)
+                
+                # If we have a saved key, use it instead of generating a new one
+                if saved_auth_key:
+                    self.remote_server.auth_key = saved_auth_key
+                    self.remote_server.auth_salt, self.remote_server.auth_hash = self.remote_server.hash_auth_key(saved_auth_key)
+                    self.log_message(f"Using saved authentication key")
+                
+                if self.remote_server.start():
+                    self.remote_enabled = True
+                    self.auth_key_var.set(self.remote_server.auth_key)
+                    
+                    # Save the auth key and enabled state
+                    update_setting("remote_control", "auth_key", self.remote_server.auth_key)
+                    update_setting("remote_control", "enabled", True)
+                    
+                    self.log_message(f"Remote control server started on port {port}")
+                    
+                    # Automatically add firewall rule
+                    self.ensure_firewall_rule(port)
+                    
+                    self.update_clients_list()
+                else:
+                    self.remote_enabled_var.set(False)
+                    update_setting("remote_control", "enabled", False)
+                    self.log_message("Failed to start remote control server")
+            except Exception as e:
+                self.remote_enabled_var.set(False)
+                update_setting("remote_control", "enabled", False)
+                self.log_message(f"Failed to start remote control server: {e}")
         else:
-            for i, (path, timestamp, filename) in enumerate(self.backup_files, 1):
-                time_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
-                self.backup_list.insert(tk.END, f"{i}. {filename} - {time_str}\n")
-        
-        self.backup_list.config(state=tk.DISABLED)
+            # Disable remote control
+            if self.remote_server:
+                self.remote_server.stop()
+                self.remote_server = None
+                self.remote_enabled = False
+                
+                # Save disabled state
+                update_setting("remote_control", "enabled", False)
+                
+                self.log_message("Remote control server stopped")
+                
+                # Clear clients list
+                self.clients_list.config(state=tk.NORMAL)
+                self.clients_list.delete(1.0, tk.END)
+                self.clients_list.insert(tk.END, "No clients connected")
+                self.clients_list.config(state=tk.DISABLED)
     
-    def update_server_backup_list(self):
-        """Update the list of available server backups"""
-        self.server_backup_files = get_server_backup_files()
+    def ensure_firewall_rule(self, port):
+        """Check for and add a firewall rule for the given port."""
+        rule_name = "FIVEM-REDM-Controller-Remote"
+        success, message = add_firewall_rule(rule_name, port)
+        self.log_message(message)
+        if not success:
+            # If it fails, inform the user they may need to add it manually
+            messagebox.showwarning("Firewall Rule", 
+                                   "Could not automatically add a Windows Firewall rule. "
+                                   "You may need to run this application as an Administrator or "
+                                   f"manually allow TCP traffic on port {port}.")
+
+    def generate_new_auth_key(self):
+        """Generate a new authentication key"""
+        if not self.remote_enabled or not self.remote_server:
+            messagebox.showinfo("Remote Control", "Enable remote control first to generate a key.")
+            return
         
-        self.server_backup_list.config(state=tk.NORMAL)
-        self.server_backup_list.delete(1.0, tk.END)
+        # Generate new key in the server
+        self.remote_server.auth_key = self.remote_server.generate_auth_key()
+        self.remote_server.auth_salt, self.remote_server.auth_hash = self.remote_server.hash_auth_key(self.remote_server.auth_key)
         
-        if not self.server_backup_files:
-            self.server_backup_list.insert(tk.END, "No server backups found.")
+        # Update UI
+        self.auth_key_var.set(self.remote_server.auth_key)
+        
+        # Save the new key
+        update_setting("remote_control", "auth_key", self.remote_server.auth_key)
+        
+        self.log_message("Generated new remote control authentication key")
+    
+    def update_clients_list(self):
+        """Update the list of connected clients"""
+        if not self.remote_server:
+            return
+            
+        self.clients_list.config(state=tk.NORMAL)
+        self.clients_list.delete(1.0, tk.END)
+        
+        if not self.remote_server.client_sockets:
+            self.clients_list.insert(tk.END, "No clients connected")
         else:
-            for i, (path, timestamp, filename) in enumerate(self.server_backup_files, 1):
-                time_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
-                self.server_backup_list.insert(tk.END, f"{i}. {filename} - {time_str}\n")
+            for sock, (address, is_authenticated) in self.remote_server.client_sockets.items():
+                status = "Authenticated" if is_authenticated else "Not authenticated"
+                self.clients_list.insert(tk.END, f"{address[0]}:{address[1]} - {status}\n")
         
-        self.server_backup_list.config(state=tk.DISABLED)
+        self.clients_list.config(state=tk.DISABLED)
+        
+        # Schedule next update
+        self.root.after(5000, self.update_clients_list)
     
-    def update_txadmin_backup_list(self):
-        """Update the list of available txAdmin backups"""
-        self.txadmin_backup_files = get_txadmin_backups()
+    def handle_remote_command(self, message):
+        """Handle commands from remote clients"""
+        command = message.command
+        response = RemoteMessage(command=command)
         
-        self.txadmin_backup_list.config(state=tk.NORMAL)
-        self.txadmin_backup_list.delete(1.0, tk.END)
+        try:
+            # Server Control Commands
+            if command == CMD_SERVER_STATUS:
+                processes = find_fxserver_processes()
+                response.status = STATUS_OK
+                response.data = {
+                    "running": bool(processes),
+                    "pid": processes[0].pid if processes else None,
+                    "status": "RUNNING" if processes else "STOPPED"
+                }
+                
+            elif command == CMD_START_SERVER:
+                # Use a thread to avoid blocking
+                def start_thread():
+                    success, result_msg = start_fxserver(callback=self.server_log)
+                    # Send response as broadcast
+                    result = RemoteMessage(
+                        command=CMD_SERVER_STATUS,
+                        status=STATUS_OK if success else STATUS_ERROR,
+                        message=result_msg,
+                        data={"action": "start", "success": success}
+                    )
+                    if self.remote_server:
+                        self.remote_server.broadcast_message(result)
+                
+                threading.Thread(target=start_thread, daemon=True).start()
+                response.status = STATUS_OK
+                response.message = "Start command received"
+                
+            elif command == CMD_STOP_SERVER:
+                # Use a thread to avoid blocking
+                def stop_thread():
+                    was_running, success, result_msg = stop_fxserver(callback=self.server_log)
+                    # Send response as broadcast
+                    result = RemoteMessage(
+                        command=CMD_SERVER_STATUS,
+                        status=STATUS_OK if success else STATUS_ERROR,
+                        message=result_msg,
+                        data={"action": "stop", "success": success}
+                    )
+                    if self.remote_server:
+                        self.remote_server.broadcast_message(result)
+                
+                threading.Thread(target=stop_thread, daemon=True).start()
+                response.status = STATUS_OK
+                response.message = "Stop command received"
+                
+            elif command == CMD_RESTART_SERVER:
+                # Use a thread to avoid blocking
+                def restart_thread():
+                    was_running, stop_success, server_path = stop_fxserver(callback=self.server_log)
+                    if not stop_success:
+                        # Send error response
+                        result = RemoteMessage(
+                            command=CMD_SERVER_STATUS,
+                            status=STATUS_ERROR,
+                            message="Failed to stop server during restart",
+                            data={"action": "restart", "success": False}
+                        )
+                        if self.remote_server:
+                            self.remote_server.broadcast_message(result)
+                        return
+                    
+                    time.sleep(2)
+                    
+                    start_success, start_message = start_fxserver(
+                        server_path=server_path if isinstance(server_path, str) else None, 
+                        callback=self.server_log
+                    )
+                    
+                    # Send final response
+                    result = RemoteMessage(
+                        command=CMD_SERVER_STATUS,
+                        status=STATUS_OK if start_success else STATUS_ERROR,
+                        message="Server restarted successfully" if start_success else f"Failed to restart server: {start_message}",
+                        data={"action": "restart", "success": start_success}
+                    )
+                    if self.remote_server:
+                        self.remote_server.broadcast_message(result)
+                
+                threading.Thread(target=restart_thread, daemon=True).start()
+                response.status = STATUS_OK
+                response.message = "Restart command received"
+            
+            # Database Commands
+            elif command == CMD_GET_DB_BACKUPS:
+                self.backup_files = get_backup_files()
+                backup_data = []
+                
+                for path, timestamp, filename in self.backup_files:
+                    backup_data.append({
+                        "filename": filename,
+                        "timestamp": timestamp,
+                        "date": datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                    })
+                
+                response.status = STATUS_OK
+                response.data = {"backups": backup_data}
+                
+            elif command == CMD_BACKUP_DB:
+                # Use a thread to avoid blocking
+                def backup_thread():
+                    success, result = create_backup()
+                    if success:
+                        deleted = delete_old_backups(keep_count=100)
+                        self.root.after(0, self.update_backup_list)
+                        
+                        # Send response as broadcast
+                        result_msg = RemoteMessage(
+                            command=CMD_BACKUP_DB,
+                            status=STATUS_OK,
+                            message="Database backup completed successfully",
+                            data={"deleted_count": deleted, "backup_path": result if isinstance(result, str) else None}
+                        )
+                    else:
+                        result_msg = RemoteMessage(
+                            command=CMD_BACKUP_DB,
+                            status=STATUS_ERROR,
+                            message=f"Database backup failed: {result}"
+                        )
+                    
+                    if self.remote_server:
+                        self.remote_server.broadcast_message(result_msg)
+                
+                threading.Thread(target=backup_thread, daemon=True).start()
+                response.status = STATUS_OK
+                response.message = "Backup command received"
+                
+            elif command == CMD_RESTORE_DB:
+                backup_index = message.data.get("backup_index")
+                
+                if backup_index is None or not isinstance(backup_index, int):
+                    response.status = STATUS_ERROR
+                    response.message = "Invalid backup index"
+                    return response
+                
+                # Check if index is valid
+                if backup_index < 0 or backup_index >= len(self.backup_files):
+                    response.status = STATUS_ERROR
+                    response.message = f"Invalid backup index. Valid range: 0-{len(self.backup_files)-1}"
+                    return response
+                
+                # Get the backup file
+                backup_path = self.backup_files[backup_index][0]
+                filename = self.backup_files[backup_index][2]
+                
+                # Use a thread to avoid blocking
+                def restore_thread():
+                    success, message_text = restore_backup(backup_path)
+                    
+                    # Send response as broadcast
+                    result_msg = RemoteMessage(
+                        command=CMD_RESTORE_DB,
+                        status=STATUS_OK if success else STATUS_ERROR,
+                        message=message_text,
+                        data={
+                            "success": success,
+                            "filename": filename
+                        }
+                    )
+                    if self.remote_server:
+                        self.remote_server.broadcast_message(result_msg)
+                
+                threading.Thread(target=restore_thread, daemon=True).start()
+                response.status = STATUS_OK
+                response.message = f"Restore command received for {filename}"
+            
+            # Server Backup Commands
+            elif command == CMD_GET_SERVER_BACKUPS:
+                self.server_backup_files = get_server_backup_files()
+                backup_data = []
+                
+                for path, timestamp, filename in self.server_backup_files:
+                    backup_data.append({
+                        "filename": filename,
+                        "timestamp": timestamp,
+                        "date": datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                    })
+                
+                response.status = STATUS_OK
+                response.data = {"backups": backup_data}
+                
+            elif command == CMD_BACKUP_SERVER:
+                # Use a thread to avoid blocking
+                def backup_thread():
+                    success, result = backup_server_folder(self.log_message)
+                    if success:
+                        deleted = delete_old_server_backups(keep_count=SERVER_BACKUP_KEEP_COUNT)
+                        self.root.after(0, self.update_server_backup_list)
+                        
+                        # Send response as broadcast
+                        result_msg = RemoteMessage(
+                            command=CMD_BACKUP_SERVER,
+                            status=STATUS_OK,
+                            message="Server backup completed successfully",
+                            data={"deleted_count": deleted, "backup_path": result if isinstance(result, str) else None}
+                        )
+                    else:
+                        result_msg = RemoteMessage(
+                            command=CMD_BACKUP_SERVER,
+                            status=STATUS_ERROR,
+                            message=f"Server backup failed: {result}"
+                        )
+                    
+                    if self.remote_server:
+                        self.remote_server.broadcast_message(result_msg)
+                
+                threading.Thread(target=backup_thread, daemon=True).start()
+                response.status = STATUS_OK
+                response.message = "Server backup command received"
+                
+            elif command == CMD_RESTORE_SERVER:
+                backup_index = message.data.get("backup_index")
+                
+                if backup_index is None or not isinstance(backup_index, int):
+                    response.status = STATUS_ERROR
+                    response.message = "Invalid backup index"
+                    return response
+                
+                # Check if index is valid
+                if backup_index < 0 or backup_index >= len(self.server_backup_files):
+                    response.status = STATUS_ERROR
+                    response.message = f"Invalid backup index. Valid range: 0-{len(self.server_backup_files)-1}"
+                    return response
+                
+                # Get the backup file
+                backup_path = self.server_backup_files[backup_index][0]
+                filename = self.server_backup_files[backup_index][2]
+                
+                # Use a thread to avoid blocking
+                def restore_thread():
+                    success, message_text = restore_server_backup(backup_path, self.log_message)
+                    
+                    # Send response as broadcast
+                    result_msg = RemoteMessage(
+                        command=CMD_RESTORE_SERVER,
+                        status=STATUS_OK if success else STATUS_ERROR,
+                        message=message_text,
+                        data={
+                            "success": success,
+                            "filename": filename
+                        }
+                    )
+                    if self.remote_server:
+                        self.remote_server.broadcast_message(result_msg)
+                
+                threading.Thread(target=restore_thread, daemon=True).start()
+                response.status = STATUS_OK
+                response.message = f"Server restore command received for {filename}"
+            
+            # TxAdmin Commands
+            elif command == CMD_GET_TXADMIN_BACKUPS:
+                self.txadmin_backup_files = get_txadmin_backups()
+                backup_data = []
+                
+                for path, timestamp, filename in self.txadmin_backup_files:
+                    backup_data.append({
+                        "filename": filename,
+                        "timestamp": timestamp,
+                        "date": datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                    })
+                
+                response.status = STATUS_OK
+                response.data = {"backups": backup_data}
+                
+            elif command == CMD_UPDATE_TXADMIN:
+                # Check if 7-Zip is available
+                if not os.path.exists(SEVEN_ZIP_PATH):
+                    response.status = STATUS_ERROR
+                    response.message = f"7-Zip executable not found at {SEVEN_ZIP_PATH}"
+                    return response
+                
+                # Use a thread to avoid blocking
+                def update_thread():
+                    try:
+                        # This process mirrors the update_txadmin method
+                        progress_callback = lambda msg, prog=None: self.update_progress_remotely(msg, prog)
+                        
+                        # Step 1: Get the latest URL
+                        url = get_latest_txadmin_url(progress_callback)
+                        if not url:
+                            if self.remote_server:
+                                self.remote_server.broadcast_message(RemoteMessage(
+                                    command=CMD_UPDATE_TXADMIN,
+                                    status=STATUS_ERROR,
+                                    message="Failed to get download URL."
+                                ))
+                            return
+                        
+                        # Step 2: Backup the current server
+                        backup_success, backup_result = backup_txadmin(progress_callback)
+                        if not backup_success:
+                            if self.remote_server:
+                                self.remote_server.broadcast_message(RemoteMessage(
+                                    command=CMD_UPDATE_TXADMIN,
+                                    status=STATUS_ERROR,
+                                    message=f"Backup failed: {backup_result}"
+                                ))
+                            return
+                        
+                        # Step 3: Download the update
+                        download_success, download_path = download_txadmin(url, progress_callback)
+                        if not download_success:
+                            if self.remote_server:
+                                self.remote_server.broadcast_message(RemoteMessage(
+                                    command=CMD_UPDATE_TXADMIN,
+                                    status=STATUS_ERROR,
+                                    message=f"Download failed: {download_path}"
+                                ))
+                            return
+                        
+                        # Step 4: Extract the update
+                        extract_success, extract_message = extract_txadmin(download_path, progress_callback)
+                        if not extract_success:
+                            if self.remote_server:
+                                self.remote_server.broadcast_message(RemoteMessage(
+                                    command=CMD_UPDATE_TXADMIN,
+                                    status=STATUS_ERROR,
+                                    message=f"Extraction failed: {extract_message}"
+                                ))
+                            return
+                        
+                        # Step 5: Clean up old backups
+                        deleted = delete_old_txadmin_backups()
+                        if deleted > 0:
+                            progress_callback(f"Deleted {deleted} old backup(s)", 95)
+                        
+                        # Step 6: Done
+                        progress_callback("TxAdmin update completed successfully!", 100)
+                        
+                        # Update the backup list
+                        self.root.after(0, self.update_txadmin_backup_list)
+                        
+                        # Send final success message
+                        if self.remote_server:
+                            self.remote_server.broadcast_message(RemoteMessage(
+                                command=CMD_UPDATE_TXADMIN,
+                                status=STATUS_OK,
+                                message="TxAdmin update completed successfully!",
+                                data={"success": True}
+                            ))
+                    
+                    except Exception as e:
+                        error_message = f"TxAdmin update failed with error: {str(e)}"
+                        if self.remote_server:
+                            self.remote_server.broadcast_message(RemoteMessage(
+                                command=CMD_UPDATE_TXADMIN,
+                                status=STATUS_ERROR,
+                                message=error_message
+                            ))
+                
+                threading.Thread(target=update_thread, daemon=True).start()
+                response.status = STATUS_OK
+                response.message = "TxAdmin update command received"
+                
+            elif command == CMD_RESTORE_TXADMIN:
+                backup_index = message.data.get("backup_index")
+                
+                if backup_index is None or not isinstance(backup_index, int):
+                    response.status = STATUS_ERROR
+                    response.message = "Invalid backup index"
+                    return response
+                
+                # Check if index is valid
+                if not self.txadmin_backup_files:
+                    response.status = STATUS_ERROR
+                    response.message = "No TxAdmin backups found"
+                    return response
+                
+                if backup_index < 0 or backup_index >= len(self.txadmin_backup_files):
+                    response.status = STATUS_ERROR
+                    response.message = f"Invalid backup index. Valid range: 0-{len(self.txadmin_backup_files)-1}"
+                    return response
+                
+                # Get the backup file
+                backup_path = self.txadmin_backup_files[backup_index][0]
+                filename = self.txadmin_backup_files[backup_index][2]
+                
+                # Use a thread to avoid blocking
+                def restore_thread():
+                    progress_callback = lambda msg, prog=None: self.update_progress_remotely(msg, prog)
+                    success, message_text = restore_txadmin_backup(backup_path, progress_callback)
+                    
+                    # Send response as broadcast
+                    result_msg = RemoteMessage(
+                        command=CMD_RESTORE_TXADMIN,
+                        status=STATUS_OK if success else STATUS_ERROR,
+                        message=message_text,
+                        data={
+                            "success": success,
+                            "filename": filename
+                        }
+                    )
+                    if self.remote_server:
+                        self.remote_server.broadcast_message(result_msg)
+                
+                threading.Thread(target=restore_thread, daemon=True).start()
+                response.status = STATUS_OK
+                response.message = f"TxAdmin restore command received for {filename}"
+                
+            # Log message
+            elif command == CMD_LOG_MESSAGE:
+                log_text = message.data.get("message", "")
+                if log_text:
+                    self.log_message(f"Remote: {log_text}")
+                    response.status = STATUS_OK
+                    response.message = "Message logged"
+                else:
+                    response.status = STATUS_ERROR
+                    response.message = "No message provided"
+            
+            # Unknown command
+            else:
+                response.status = STATUS_ERROR
+                response.message = f"Unknown command: {command}"
+            
+        except Exception as e:
+            response.status = STATUS_ERROR
+            response.message = f"Error handling command: {str(e)}"
         
-        if not self.txadmin_backup_files:
-            self.txadmin_backup_list.insert(tk.END, "No txAdmin backups found.")
-        else:
-            for i, (path, timestamp, filename) in enumerate(self.txadmin_backup_files, 1):
-                time_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
-                self.txadmin_backup_list.insert(tk.END, f"{i}. {filename} - {time_str}\n")
-        
-        self.txadmin_backup_list.config(state=tk.DISABLED)
+        return response
     
-    def update_next_backup_timer(self):
-        """Update the timer showing next backup time"""
-        next_backup_time, backup_type = calculate_next_backup_time()
-        time_str = next_backup_time.strftime('%Y-%m-%d %H:%M:%S')
-        self.next_backup_label.config(text=f"{time_str} ({backup_type})")
+    def update_progress_remotely(self, message, progress=None):
+        """Update remote clients about progress"""
+        # Update local UI
+        self.update_txadmin_status(message, progress)
         
-        # Calculate countdown
-        now = datetime.now()
-        time_diff = next_backup_time - now
-        hours, remainder = divmod(time_diff.seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        self.countdown_label.config(text=f"Time remaining: {time_diff.days} days, {hours:02}:{minutes:02}:{seconds:02}")
-        
-        # Schedule the next update in 1 second
-        self.root.after(1000, self.update_next_backup_timer)
+        # Send to remote clients
+        if self.remote_server:
+            progress_msg = RemoteMessage(
+                command="PROGRESS_UPDATE",
+                status=STATUS_OK,
+                message=message,
+                data={"progress": progress}
+            )
+            self.remote_server.broadcast_message(progress_msg)
     
     def log_message(self, message):
         """Add a message to the log display"""
@@ -546,6 +1179,14 @@ class BackupApp:
         
         # Also log to file
         logging.info(message)
+    
+        # Also broadcast to remote clients if enabled
+        if self.remote_enabled and self.remote_server:
+            log_msg = RemoteMessage(
+                command=CMD_LOG_MESSAGE,
+                data={"message": message, "timestamp": datetime.now().isoformat()}
+            )
+            self.remote_server.broadcast_message(log_msg)
     
     def run_manual_backup(self):
         """Run a manual backup when button is pressed"""
@@ -993,9 +1634,92 @@ class BackupApp:
 
     def on_close(self):
         """Clean up when the window is closed"""
+        # Stop remote server if running
+        if self.remote_server:
+            self.remote_server.stop()
+            self.remote_server = None
+        
         self.running = False
         self.root.destroy()
 
+    def update_backup_list(self):
+        """Update the list of available backups"""
+        self.backup_files = get_backup_files()
+        
+        self.backup_list.config(state=tk.NORMAL)
+        self.backup_list.delete(1.0, tk.END)
+        
+        if not self.backup_files:
+            self.backup_list.insert(tk.END, "No backups found.")
+        else:
+            for i, (path, timestamp, filename) in enumerate(self.backup_files, 1):
+                time_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                self.backup_list.insert(tk.END, f"{i}. {filename} - {time_str}\n")
+        
+        self.backup_list.config(state=tk.DISABLED)
+    
+    def update_server_backup_list(self):
+        """Update the list of available server backups"""
+        self.server_backup_files = get_server_backup_files()
+        
+        self.server_backup_list.config(state=tk.NORMAL)
+        self.server_backup_list.delete(1.0, tk.END)
+        
+        if not self.server_backup_files:
+            self.server_backup_list.insert(tk.END, "No server backups found.")
+        else:
+            for i, (path, timestamp, filename) in enumerate(self.server_backup_files, 1):
+                time_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                self.server_backup_list.insert(tk.END, f"{i}. {filename} - {time_str}\n")
+        
+        self.server_backup_list.config(state=tk.DISABLED)
+    
+    def update_txadmin_backup_list(self):
+        """Update the list of available TxAdmin backups"""
+        self.txadmin_backup_files = get_txadmin_backups()
+        
+        self.txadmin_backup_list.config(state=tk.NORMAL)
+        self.txadmin_backup_list.delete(1.0, tk.END)
+        
+        if not self.txadmin_backup_files:
+            self.txadmin_backup_list.insert(tk.END, "No TxAdmin backups found.")
+        else:
+            for i, (path, timestamp, filename) in enumerate(self.txadmin_backup_files, 1):
+                time_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                self.txadmin_backup_list.insert(tk.END, f"{i}. {filename} - {time_str}\n")
+        
+        self.txadmin_backup_list.config(state=tk.DISABLED)
+    
+    def update_next_backup_timer(self):
+        """Update the next scheduled backup time and countdown display"""
+        if not self.running:
+            return
+            
+        # Calculate the next backup time
+        next_backup_time, backup_type = calculate_next_backup_time()
+        
+        # Format the date for display
+        formatted_time = next_backup_time.strftime('%Y-%m-%d %H:%M:%S')
+        self.next_backup_label.config(text=f"Next {backup_type} Backup: {formatted_time}")
+        
+        # Calculate time remaining
+        now = datetime.now()
+        time_diff = next_backup_time - now
+        hours, remainder = divmod(time_diff.seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        days = time_diff.days
+        
+        # Display countdown
+        if days > 0:
+            countdown = f"{days} days, {hours} hours, {minutes} minutes remaining"
+        else:
+            countdown = f"{hours} hours, {minutes} minutes, {seconds} seconds remaining"
+            
+        self.countdown_label.config(text=countdown)
+        
+        # Update every minute
+        self.root.after(60000, self.update_next_backup_timer)
+    
 def main():
     """Main function to run the GUI application"""
     root = tk.Tk()

@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+import subprocess
 from datetime import datetime, timedelta
 from config import LOG_FILE, DB_BACKUP_HOURS, SERVER_BACKUP_HOURS, BACKUP_MINUTE
 
@@ -11,6 +12,48 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+def check_firewall_rule(rule_name):
+    """Check if a firewall rule exists."""
+    try:
+        # Use subprocess.run to check for the rule
+        result = subprocess.run(
+            ['netsh', 'advfirewall', 'firewall', 'show', 'rule', f'name={rule_name}'],
+            capture_output=True, text=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        return "No rules match the specified criteria." not in result.stdout
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # If netsh fails or rule doesn't exist, it will often return a non-zero exit code
+        return False
+
+def add_firewall_rule(rule_name, port):
+    """Add a firewall rule to allow TCP traffic on a specific port."""
+    if check_firewall_rule(rule_name):
+        logging.info(f"Firewall rule '{rule_name}' already exists.")
+        return True, f"Firewall rule '{rule_name}' already exists."
+
+    try:
+        # Command to add the firewall rule
+        command = [
+            'netsh', 'advfirewall', 'firewall', 'add', 'rule',
+            f'name={rule_name}',
+            'dir=in',
+            'action=allow',
+            'protocol=TCP',
+            f'localport={port}'
+        ]
+        # Run with admin rights if possible, but will fail gracefully if not
+        subprocess.run(command, capture_output=True, text=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        logging.info(f"Successfully added firewall rule '{rule_name}' for port {port}.")
+        return True, f"Firewall rule '{rule_name}' for port {port} added."
+    except subprocess.CalledProcessError as e:
+        error_message = f"Failed to add firewall rule. Try running as Administrator. Error: {e.stderr}"
+        logging.error(error_message)
+        return False, error_message
+    except FileNotFoundError:
+        error_message = "netsh command not found. Cannot manage firewall."
+        logging.error(error_message)
+        return False, error_message
 
 def restart_application():
     """Restart the current application"""
