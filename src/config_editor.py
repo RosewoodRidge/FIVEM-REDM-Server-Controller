@@ -3,6 +3,8 @@ import re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import logging
+import sys
+import shutil
 
 # Ensure logs directory exists
 logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs")
@@ -34,8 +36,48 @@ class ConfigEditor:
         self.root.geometry("900x700")
         self.root.configure(bg=COLORS['bg'])
         
-        # Store config file path
-        self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.py')
+        # Determine config file location
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            # Store config in user's AppData directory for persistence
+            appdata = os.environ.get('APPDATA')
+            config_dir = os.path.join(appdata, 'FIVEM-REDM-Controller')
+            os.makedirs(config_dir, exist_ok=True)
+            self.config_file = os.path.join(config_dir, 'config.py')
+            
+            # If config doesn't exist, create a default one
+            if not os.path.exists(self.config_file):
+                # Try to copy from bundled resources
+                if hasattr(sys, '_MEIPASS'):
+                    bundled_config = os.path.join(sys._MEIPASS, 'config.py')
+                    if os.path.exists(bundled_config):
+                        shutil.copy(bundled_config, self.config_file)
+                        logging.info(f"Created config file from bundled resources: {self.config_file}")
+                    else:
+                        # Create a minimal default config
+                        self.create_default_config(self.config_file)
+                else:
+                    self.create_default_config(self.config_file)
+            
+            logging.info(f"Running as executable. Config file path: {self.config_file}")
+        else:
+            # Running in development mode
+            self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.py')
+            logging.info(f"Running in development mode. Config file path: {self.config_file}")
+        
+        # Check if config file exists
+        if not os.path.exists(self.config_file):
+            error_msg = f"Configuration file not found at: {self.config_file}"
+            logging.error(error_msg)
+            
+            # Show more helpful error message
+            messagebox.showerror("Configuration File Not Found", 
+                               f"{error_msg}\n\n"
+                               f"A default configuration file will be created.\n"
+                               f"Please configure the settings and save.")
+            
+            # Create default config
+            self.create_default_config(self.config_file)
         
         # Dictionary to store configuration values
         self.config_vars = {}
@@ -363,6 +405,70 @@ class ConfigEditor:
             self.status_label.config(text=f"Error: {str(e)}", foreground="red")
             logging.error(f"Failed to save configuration: {e}")
             messagebox.showerror("Error", f"Failed to save configuration: {e}")
+
+    def create_default_config(self, config_path):
+        """Create a default config.py file with placeholder values"""
+        try:
+            default_config = '''import os
+
+# --- Configuration ---
+# Hard-coded configuration values
+LOG_FILE = 'backup.log'
+
+# Database configuration
+DB_HOST = 'localhost'
+DB_USER = 'root'
+DB_PASSWORD = ''
+DB_NAME = 'my_database'
+
+# Backup configuration
+BACKUP_DIR = r'C:\\backups\\database'
+MYSQLDUMP_PATH = r'C:\\xampp\\mysql\\bin\\mysqldump.exe'
+MYSQL_PATH = r'C:\\xampp\\mysql\\bin\\mysql.exe'
+
+# Server backup configuration
+SERVER_FOLDER = r'C:\\server\\resources'
+SERVER_BACKUP_DIR = r'C:\\backups\\server'
+SERVER_BACKUP_KEEP_COUNT = 10
+SERVER_BACKUP_THROTTLE = 0.1
+
+# TxAdmin update configuration
+TXADMIN_SERVER_DIR = r'C:\\server'
+TXADMIN_BACKUP_DIR = r'C:\\backups\\txadmin'
+TXADMIN_DOWNLOAD_DIR = r'C:\\downloads'
+TXADMIN_URL = 'https://runtime.fivem.net/artifacts/fivem/build_server_windows/master'
+TXADMIN_KEEP_COUNT = 5
+SEVEN_ZIP_PATH = r'C:\\Program Files\\7-Zip\\7z.exe'
+AUTO_UPDATE_TXADMIN = True
+
+# Backup schedule
+DB_BACKUP_HOURS = [3, 15]
+SERVER_BACKUP_HOURS = [3]
+BACKUP_MINUTE = 0
+
+# --- UI Configuration ---
+COLORS = {
+    'bg': '#0f172a',
+    'panel': '#1e293b',
+    'accent': '#3b82f6',
+    'accent_hover': '#2563eb',
+    'text': '#f8fafc',
+    'text_secondary': '#94a3b8',
+    'button_text': "#3b3b3b",
+    'tab_bg': '#0f172a',
+    'tab_fg': "#3b3b3b",
+    'tab_selected_bg': '#3b82f6',
+    'tab_selected_fg': "#660000"
+}
+'''
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            with open(config_path, 'w') as f:
+                f.write(default_config)
+            logging.info(f"Created default config file: {config_path}")
+            return True
+        except Exception as e:
+            logging.error(f"Failed to create default config: {e}")
+            return False
 
 def main():
     root = tk.Tk()

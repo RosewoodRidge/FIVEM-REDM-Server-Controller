@@ -2,145 +2,283 @@
 
 This comprehensive utility helps you manage FiveM and RedM servers with automated backups, server control, and TxAdmin updates.
 
+## Table of Contents
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Features & Usage](#features--usage)
+- [Remote Control](#remote-control)
+- [Advanced Options](#advanced-options)
+- [Troubleshooting](#troubleshooting)
+
+---
+
 ## Installation
 
-### Step 1: Install Python
+### Quick Install (Recommended for Most Users)
 
-1. Download and install Python 3.8 or newer from [python.org](https://www.python.org/downloads/windows/)
-2. **IMPORTANT:** Check the box "Add Python to PATH" during installation
+1. **Download** the complete package to your computer
+2. **Run `install.bat`** by double-clicking it
+3. The installer will:
+   - Check your Python installation
+   - Install all required dependencies automatically
+   - Build three executable programs
+   - Create Start Menu shortcuts
+   - Open the installation folder when complete
+4. **Find your applications** in the Start Menu under **"FIVEM & REDM Controller"**
 
-### Step 2: Install Dependencies
+**Note:** The installation process takes 2-5 minutes depending on your computer speed. The installer window will automatically close when complete, and Windows Explorer will open showing your installed programs.
 
-Run the following command in Command Prompt or PowerShell to install required packages:
+### What Gets Installed
 
+Three applications will be created in the `dist` folder:
 
-pip install requests beautifulsoup4 psutil
+1. **FIVEM & REDM Server Controller.exe** - Main application for server management
+2. **FIVEM & REDM Remote Client.exe** - Remote control client for managing servers from another computer
+3. **FIVEM & REDM Configuration Editor.exe** - Easy-to-use configuration editor
 
+---
 
-### Step 3: Configure the Application
+## Configuration
 
-1. Open the `config.py` file with a text editor
-2. Update the following settings:
+### First-Time Setup
 
-#### Database Configuration
+1. **Open the Configuration Editor** from Start Menu → FIVEM & REDM Controller → Configuration Editor
+2. Configure the following settings:
 
-DB_HOST = 'localhost'  # Your MySQL server hostname
-DB_USER = 'your_db_user'  # MySQL username
-DB_PASSWORD = 'your_password'  # MySQL password
-DB_NAME = 'your_db_name'  # Database to backup
-BACKUP_DIR = 'C:\\path\\to\\database\\backups'  # Where to store database backups
-MYSQLDUMP_PATH = 'C:\\xampp\\mysql\\bin\\mysqldump.exe'  # Path to mysqldump.exe
-MYSQL_PATH = 'C:\\xampp\\mysql\\bin\\mysql.exe'  # Path to mysql.exe
+#### Database Settings
+- **Database Host**: Your MySQL server address (usually `localhost`)
+- **Database Username**: MySQL username (default: `root`)
+- **Database Password**: Your MySQL password
+- **Database Name**: Name of the database to backup
+- **MySQLDump Path**: Full path to `mysqldump.exe`
+  - Default XAMPP location: `C:\xampp\mysql\bin\mysqldump.exe`
+  - Use the Browse button to find it
+- **MySQL Path**: Full path to `mysql.exe`
+  - Default XAMPP location: `C:\xampp\mysql\bin\mysql.exe`
 
+#### Backup Locations
+- **Database Backup Directory**: Where database backups are saved
+  - Example: `C:\backups\database`
+- **Server Backup Directory**: Where server file backups are saved
+  - Example: `C:\backups\server`
+- **Server Resources Folder**: Your FiveM/RedM resources folder
+  - Example: `C:\FXServer\server-data\resources`
 
-#### Server Backup Configuration
-
-SERVER_FOLDER = 'C:\\path\\to\\server\\resources'  # FiveM/RedM resources folder
-SERVER_BACKUP_DIR = 'C:\\path\\to\\server\\backups'  # Where to store server backups
-SERVER_BACKUP_KEEP_COUNT = 10  # Number of server backups to keep
-
-
-#### TxAdmin Configuration
-
-TXADMIN_SERVER_DIR = 'C:\\path\\to\\server'  # Main server directory
-TXADMIN_BACKUP_DIR = 'C:\\path\\to\\txadmin\\backups'  # Where to store TxAdmin backups
-TXADMIN_DOWNLOAD_DIR = 'C:\\path\\to\\downloads'  # Where to download TxAdmin updates
-SEVEN_ZIP_PATH = 'C:\\Program Files\\7-Zip\\7z.exe'  # Path to 7-Zip executable
-
+#### TxAdmin Settings
+- **TxAdmin Server Directory**: Main server folder containing `FXServer.exe`
+  - Example: `C:\FXServer\server`
+- **TxAdmin Backup Directory**: Where TxAdmin backups are saved
+  - Example: `C:\backups\txadmin`
+- **TxAdmin Download Directory**: Temporary download location
+  - Example: `C:\downloads` or `%USERPROFILE%\Downloads`
+- **7-Zip Path**: Full path to 7-Zip executable
+  - Default: `C:\Program Files\7-Zip\7z.exe`
+  - Required for TxAdmin updates
 
 #### Backup Schedule
+- **Database Backup Hours**: When to run database backups (0-23)
+  - Example: `3, 15` = 3 AM and 3 PM daily
+- **Server Backup Hours**: When to run server file backups (0-23)
+  - Example: `3` = 3 AM daily
 
-DB_BACKUP_HOURS = [3, 15]  # Database backups at 3 AM and 3 PM
-SERVER_BACKUP_HOURS = [3]  # Server backups at 3 AM only
-BACKUP_MINUTE = 0  # Minute of the hour to run backups
+3. **Click "Save Configuration"**
+4. **Restart the main application** for changes to take effect
+
+**Important:** Your configuration is stored in `%APPDATA%\FIVEM-REDM-Controller\config.py` when using the compiled executables. This location persists even if you update the application.
+
+---
 
 ## Features & Usage
 
-#### Start the App
+### Starting the Application
 
-To run the applications without a console window, use the provided launcher files:
-- **For the main server controller:** Double-click `start.bat`
-- **For the remote client:** Double-click `start_remote.bat`
+Launch **FIVEM & REDM Server Controller** from:
+- Start Menu → FIVEM & REDM Controller → Server Controller
+- Or run `FIVEM & REDM Server Controller.exe` from the installation folder
 
-These will launch the applications in the background. If you need to see console output for debugging, you can still run the `app.py` or `remote_app.py` files directly with `python.exe`.
+### Server Control Tab
 
-### Server Control
+**View and control your FXServer process:**
+- **Current Status**: Shows if server is RUNNING or STOPPED with Process ID
+- **Start Server**: Launches `FXServer.exe`
+- **Stop Server**: Safely terminates the server process
+- **Restart Server**: Stops then restarts the server
+- **Command Output**: Shows real-time server control messages
 
-The "Server Control" tab allows you to:
+Status updates automatically every 3 seconds.
 
-- **View Server Status**: See if FXServer.exe is running
-- **Start Server**: Launch FXServer.exe
-- **Stop Server**: Terminate FXServer.exe
-- **Restart Server**: Stop and restart FXServer.exe
+### Server Backup Tab
 
-Command output is displayed in real-time in the window.
+**Manage your server resource backups:**
+- **Run Manual Server Backup Now**: Creates immediate backup of your resources folder
+- **Restore Server Files**: Restore from any previous backup
+  - Enter backup number (1 = most recent)
+  - Confirms before overwriting current files
+- **Available Server Backups**: Lists all backups with timestamps
 
-### Remote Control
+**Automatic Backups:** Runs daily at configured hours. Keeps the 10 most recent backups by default.
 
-The utility includes a remote client that allows you to manage your server from another computer on the network.
+### Database Backup Tab
 
-#### Enabling Remote Access on the Server
+**Manage your MySQL database backups:**
+- **Next Scheduled Backup**: Shows countdown to next automatic backup
+- **Run Manual Database Backup**: Creates immediate backup
+- **Restore Database**: Restore from any previous backup
+  - Enter backup number (1 = most recent)
+  - Confirms before overwriting current database
+- **Available Database Backups**: Lists all backups with timestamps
 
-1.  In the main application, go to the **Remote Control** tab.
-2.  Check the **Enable Remote Control** box.
-3.  The server will start, and the **Server IP**, **Port**, and **Authentication Key** will be displayed.
-4.  The application will attempt to create a Windows Firewall rule automatically. If it fails (e.g., due to permissions), you may need to manually allow incoming TCP connections on the specified port.
+**Automatic Backups:** Runs at configured hours. Keeps 100 most recent backups by default.
 
-#### Connecting with the Remote Client
+### TxAdmin Update Tab
 
-1.  On a different computer, run `start_remote.bat`.
-2.  Enter the **Server IP**, **Port**, and **Authentication Key** provided by the main application.
-3.  Click **Connect**. Your connection details will be saved for the next time you open the remote client.
-4.  Once connected, you will have access to the server management tabs.
+**Keep your server software up to date:**
+- **Update TxAdmin**: Downloads and installs latest recommended version
+  - Automatically creates backup before updating
+  - Stops server during update
+  - Restarts server after completion
+- **Update Progress**: Real-time progress bar and status messages
+- **Restore Previous Version**: Rollback to any previous backup
+  - Enter backup number (1 = most recent)
+  - Useful if an update causes issues
 
-#### Remote Features
+**Automatic Updates:** If enabled in config, checks for updates after database backups and installs automatically.
 
-The remote client provides access to most of the main application's features, including:
--   **Server Control**: Start, stop, and restart the server.
--   **Backups**: Run and restore server, database, and TxAdmin backups.
--   **TxAdmin Updates**: Initiate a TxAdmin update.
--   **Activity Log**: View logs from the server and send messages.
+### Activity Log Tab
 
-### Server Backup
+**Monitor all operations:**
+- Shows timestamped log of all actions
+- Includes backup operations, server control, updates, and errors
+- Useful for troubleshooting and auditing
 
-The "Server Backup" tab allows you to:
+### Application Updates
 
-- **Run Manual Backup**: Create a full backup of your server resources folder
-- **Restore Server Files**: Restore from a previous backup (select by index)
-- **View Backup History**: See a list of available server backups
+The application automatically checks for updates:
+- On startup (once per day)
+- Manual check via "Check for Updates" button in status bar
+- Shows version comparison and changelog
+- Downloads and installs with one click
+- Preserves your configuration settings
 
-Automated server backups occur daily at the time specified in config.py.
+---
 
-### Database Backup
+## Remote Control
 
-The "Database Backup" tab allows you to:
+Control your server from another computer on your network.
 
-- **Run Manual Database Backup**: Create a full MySQL database backup
-- **Restore Database**: Restore from a previous backup (select by index)
-- **View Backup History**: See a list of available database backups
+### Server Setup (Main Computer)
 
-Automated database backups occur at the times specified in config.py.
+1. **Open Remote Control tab** in the main application
+2. **Enable Remote Control** checkbox
+3. Note the displayed information:
+   - **Server IP**: Your computer's network address
+   - **Port**: Network port (default: 40100)
+   - **Authentication Key**: Required to connect (format: xxxx-xxxx-xxxx-xxxx-xxxx)
 
-### TxAdmin Update
+**Security Notes:**
+- Authentication key is automatically generated
+- Copy key to clipboard using the 📋 Copy button
+- Click 👁 to show/hide the key
+- Generate new key anytime with "Generate New Key" button
+- Windows Firewall rule is added automatically (may require admin rights)
 
-The "TxAdmin Update" tab allows you to:
+### Client Setup (Remote Computer)
 
-- **Update TxAdmin**: Download and install the latest recommended version
-- **Restore Previous Version**: Rollback to a previous TxAdmin version
-- **Track Update Progress**: Monitor the download and installation progress
+1. **Install the application** on the remote computer (follow installation steps)
+2. **Launch FIVEM & REDM Remote Client** from Start Menu
+3. **Enter connection details:**
+   - Server IP: From server's Remote Control tab
+   - Port: Usually 40100
+   - Authentication Key: Paste from server
+4. **Click Connect**
 
-The utility automatically creates a backup before updating TxAdmin.
+**Connection saved:** Details are remembered for next time.
 
-### Activity Log
+### Remote Features
 
-The "Activity Log" tab shows a chronological record of all operations performed by the utility, including:
+Once connected, you can:
+- **Server Control**: Start, stop, restart the server
+- **View Status**: Real-time server status with auto-refresh
+- **Database Backups**: Create and restore database backups
+- **Server Backups**: Create and restore server file backups
+- **TxAdmin Updates**: Update and restore TxAdmin
+- **Activity Log**: View server logs and send messages
+- **Auto-Refresh**: Lists update automatically every 5 seconds
 
-- Backup/restore operations
-- Server start/stop events
-- TxAdmin updates
-- Error messages
+### Firewall Configuration
+
+If remote connections fail:
+1. Ensure Windows Firewall allows the port
+2. Manually add rule if needed:
+   - Open Windows Defender Firewall
+   - Advanced settings → Inbound Rules → New Rule
+   - Port: TCP, specific port (40100)
+   - Allow the connection
+   - Name: FIVEM-REDM-Controller-Remote
+
+---
+
+## Advanced Options
+
+### Manual Build Process
+
+For developers or users who want to build from source:
+
+**Prerequisites:**
+- Python 3.8 or newer
+- Git (optional, for version control)
+
+**Steps:**
+1. Open Command Prompt in the application directory
+2. Install dependencies:
+   ```
+   pip install pyinstaller requests beautifulsoup4 psutil pywin32 winshell
+   ```
+3. Build executables:
+   ```
+   cd src
+   pyinstaller app.spec --clean --noconfirm
+   pyinstaller remote_app.spec --clean --noconfirm
+   pyinstaller config_editor.spec --clean --noconfirm
+   ```
+4. Find executables in `src\dist` folder
+
+### Direct Python Execution
+
+Run without building executables:
+
+**Prerequisites:**
+- Python 3.8 or newer
+- All dependencies installed (see Manual Build)
+
+**Launch Main Application:**
+```bash
+python -m fivem_redm_controller
+```
+
+**Launch Remote Client:**
+```bash
+python -m fivem_redm_remote_client
+```
+
+**Launch Configuration Editor:**
+```bash
+python -m fivem_redm_config_editor
+```
+
+**Note:** Running directly requires a command prompt. Change to the application directory first.
+
+---
 
 ## Troubleshooting
+
+### Installation Issues
+
+If the installer fails:
+- Make sure Python 3.8+ is installed
+- Run Command Prompt as Administrator
+- Manually install dependencies: `pip install pyinstaller requests beautifulsoup4 psutil pywin32 winshell`
+- Try running `build_exe.bat` manually
 
 ### MySQL Connection Issues
 
@@ -163,6 +301,13 @@ If TxAdmin updates fail:
 - Ensure the download directory is writable
 - Check your internet connection
 - Stop the FXServer process manually before updating if issues persist
+
+## Uninstallation
+
+To uninstall:
+1. Delete the Start Menu shortcuts from `%APPDATA%\Microsoft\Windows\Start Menu\Programs\FIVEM & REDM Controller`
+2. Delete the installation folder (default: `C:\Program Files\FIVEM-REDM-Controller`)
+3. Remove any created backups if no longer needed
 
 ## Support
 

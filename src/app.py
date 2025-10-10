@@ -15,6 +15,17 @@ import logging
 import socket
 import subprocess
 
+# Ensure config is loaded from the correct location
+if getattr(sys, 'frozen', False):
+    # Running as executable - use AppData config
+    appdata = os.environ.get('APPDATA')
+    config_dir = os.path.join(appdata, 'FIVEM-REDM-Controller')
+    config_file = os.path.join(config_dir, 'config.py')
+    
+    # If config exists in AppData, temporarily add to path so it can be imported
+    if os.path.exists(config_file):
+        sys.path.insert(0, config_dir)
+
 # Import from other modules
 from config import *
 from ui import apply_styles, ModernScrolledText
