@@ -501,11 +501,7 @@ class BackupApp:
         # Schedule regular update checks
         self.schedule_update_check()
         
-        # Set up remote control server
-        # self.remote_server = None  # Already initialized at the start
-        # self.remote_enabled = False  # Already initialized at the start
-        
-        # Add a Remote Control tab
+        # Add a Remote Control tab (ONLY ONCE!)
         self.remote_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.remote_tab, text="Remote Control")
         
@@ -583,7 +579,7 @@ class BackupApp:
             textvariable=self.auth_key_var,
             width=40,
             state="readonly",
-            show="•"  # Hide characters by default
+            show="•"
         )
         self.auth_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         
@@ -613,6 +609,63 @@ class BackupApp:
             command=self.generate_new_auth_key
         ).pack(pady=10)
         
+        # IP Whitelist section
+        whitelist_frame = ttk.LabelFrame(self.remote_tab, text="IP Whitelist (Optional)")
+        whitelist_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Enable whitelist checkbox
+        self.whitelist_enabled_var = tk.BooleanVar(value=self.settings["remote_control"].get("whitelist_enabled", False))
+        ttk.Checkbutton(
+            whitelist_frame,
+            text="Enable IP Whitelist (Only allow specific IPs to connect)",
+            variable=self.whitelist_enabled_var,
+            command=self.toggle_whitelist
+        ).pack(anchor=tk.W, pady=10, padx=10)
+        
+        # Whitelisted IPs list
+        ttk.Label(
+            whitelist_frame,
+            text="Whitelisted IP Addresses:"
+        ).pack(anchor=tk.W, pady=(0, 5), padx=10)
+        
+        self.whitelist_text = ModernScrolledText(
+            whitelist_frame, 
+            wrap=tk.WORD, 
+            height=5
+        )
+        self.whitelist_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        
+        # Add IP controls
+        add_ip_frame = ttk.Frame(whitelist_frame)
+        add_ip_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        ttk.Label(
+            add_ip_frame,
+            text="Add IP:"
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.add_ip_var = tk.StringVar()
+        ttk.Entry(
+            add_ip_frame,
+            textvariable=self.add_ip_var,
+            width=20
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(
+            add_ip_frame,
+            text="Add",
+            command=self.add_ip_to_whitelist
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(
+            add_ip_frame,
+            text="Remove Selected",
+            command=self.remove_ip_from_whitelist
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # Update whitelist display
+        self.update_whitelist_display()
+        
         # Connected clients section
         clients_frame = ttk.LabelFrame(self.remote_tab, text="Connected Clients")
         clients_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -638,16 +691,14 @@ class BackupApp:
     def detect_ip_address(self):
         """Detect and display the local IP address"""
         try:
-            # This is a common method to get the local IP address
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            # Doesn't actually connect but helps determine which interface to use
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-            self.ip_var.set(local_ip)
+            # Get the hostname
+            hostname = socket.gethostname()
+            # Get the local IP address using the hostname
+            ip_address = socket.gethostbyname(hostname)
+            
+            self.ip_var.set(ip_address)
         except Exception as e:
-            self.ip_var.set("Could not detect IP")
-            self.log_message(f"Failed to detect local IP: {e}")
+            self.ip_var.set(f"Error: {str(e)}")
     
     def toggle_remote_control(self):
         """Enable or disable remote control"""
@@ -1778,6 +1829,96 @@ class BackupApp:
         
         # Update every minute
         self.root.after(60000, self.update_next_backup_timer)
+    
+    def toggle_whitelist(self):
+        """Enable or disable IP whitelist"""
+        enabled = self.whitelist_enabled_var.get()
+        update_setting("remote_control", "whitelist_enabled", enabled)
+        
+        if enabled:
+            self.log_message("IP whitelist enabled")
+        else:
+            self.log_message("IP whitelist disabled - all IPs can attempt to connect")
+        
+        # Apply to running server
+        if self.remote_server:
+            if not enabled:
+                self.remote_server.whitelisted_ips.clear()
+            else:
+                # Reload whitelist
+                for ip in self.settings["remote_control"].get("whitelisted_ips", []):
+                    self.remote_server.add_whitelisted_ip(ip)
+    
+    def add_ip_to_whitelist(self):
+        """Add an IP address to the whitelist"""
+        ip = self.add_ip_var.get().strip()
+        
+        # Basic IP validation
+        if not ip:
+            return
+        
+        parts = ip.split('.')
+        if len(parts) != 4 or not all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+            messagebox.showerror("Invalid IP", "Please enter a valid IP address (e.g., 192.168.1.100)")
+            return
+        
+        # Add to settings
+        whitelisted = self.settings["remote_control"].get("whitelisted_ips", [])
+        if ip not in whitelisted:
+            whitelisted.append(ip)
+            update_setting("remote_control", "whitelisted_ips", whitelisted)
+            
+            # Add to running server
+            if self.remote_server and self.whitelist_enabled_var.get():
+                self.remote_server.add_whitelisted_ip(ip)
+            
+            self.log_message(f"Added {ip} to whitelist")
+            self.update_whitelist_display()
+            self.add_ip_var.set("")
+        else:
+            messagebox.showinfo("Already Whitelisted", f"{ip} is already in the whitelist")
+    
+    def remove_ip_from_whitelist(self):
+        """Remove selected IP from whitelist"""
+        try:
+            # Get selected text
+            selection = self.whitelist_text.get(tk.SEL_FIRST, tk.SEL_LAST).strip()
+            
+            # Extract IP (format: "• 192.168.1.1")
+            if '•' in selection:
+                ip = selection.split('•')[1].strip()
+            else:
+                ip = selection
+            
+            # Remove from settings
+            whitelisted = self.settings["remote_control"].get("whitelisted_ips", [])
+            if ip in whitelisted:
+                whitelisted.remove(ip)
+                update_setting("remote_control", "whitelisted_ips", whitelisted)
+                
+                # Remove from running server
+                if self.remote_server:
+                    self.remote_server.remove_whitelisted_ip(ip)
+                
+                self.log_message(f"Removed {ip} from whitelist")
+                self.update_whitelist_display()
+            
+        except tk.TclError:
+            messagebox.showinfo("No Selection", "Please select an IP address to remove")
+    
+    def update_whitelist_display(self):
+        """Update the whitelist display"""
+        self.whitelist_text.config(state=tk.NORMAL)
+        self.whitelist_text.delete(1.0, tk.END)
+        
+        whitelisted = self.settings["remote_control"].get("whitelisted_ips", [])
+        if not whitelisted:
+            self.whitelist_text.insert(tk.END, "No IPs whitelisted (all IPs can connect if whitelist is disabled)")
+        else:
+            for ip in whitelisted:
+                self.whitelist_text.insert(tk.END, f"• {ip}\n")
+        
+        self.whitelist_text.config(state=tk.DISABLED)
     
 def main():
     """Main function to run the GUI application"""

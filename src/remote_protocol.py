@@ -7,6 +7,7 @@ import time
 import base64
 import threading
 from datetime import datetime
+from collections import defaultdict
 
 # Set up specific logger for remote operations
 remote_logger = logging.getLogger('remote_control')
@@ -133,7 +134,16 @@ class RemoteServer:
         self.client_sockets = {}  # {socket: (address, auth_status)}
         self.auth_key = generate_auth_key()
         self.auth_salt, self.auth_hash = hash_auth_key(self.auth_key)
-        self.debug_mode = True  # Add missing debug_mode attribute
+        self.debug_mode = True
+        
+        # Security enhancements
+        self.whitelisted_ips = set()  # Set of allowed IP addresses
+        self.ip_attempts = defaultdict(list)  # Track authentication attempts per IP
+        self.max_attempts = 5  # Max failed attempts before temporary ban
+        self.attempt_window = 300  # 5 minute window for attempts
+        self.ban_duration = 600  # 10 minute ban after max attempts
+        self.banned_ips = {}  # {ip: ban_expiry_timestamp}
+        
         remote_logger.info(f"Generated authentication key: {self.auth_key}")
     
     def hash_auth_key(self, key, salt=None):
@@ -229,11 +239,87 @@ class RemoteServer:
                     logging.error(f"Error accepting connection: {str(e)}")
                     time.sleep(1)  # Avoid tight loop if there's an error
     
+    def add_whitelisted_ip(self, ip_address):
+        """Add an IP address to the whitelist"""
+        self.whitelisted_ips.add(ip_address)
+        remote_logger.info(f"Added {ip_address} to whitelist")
+    
+    def remove_whitelisted_ip(self, ip_address):
+        """Remove an IP address from the whitelist"""
+        self.whitelisted_ips.discard(ip_address)
+        remote_logger.info(f"Removed {ip_address} from whitelist")
+    
+    def is_ip_banned(self, ip_address):
+        """Check if an IP is currently banned"""
+        if ip_address in self.banned_ips:
+            if time.time() < self.banned_ips[ip_address]:
+                return True
+            else:
+                # Ban expired, remove it
+                del self.banned_ips[ip_address]
+                return False
+        return False
+    
+    def record_failed_attempt(self, ip_address):
+        """Record a failed authentication attempt"""
+        current_time = time.time()
+        
+        # Clean old attempts outside the window
+        self.ip_attempts[ip_address] = [
+            t for t in self.ip_attempts[ip_address]
+            if current_time - t < self.attempt_window
+        ]
+        
+        # Add new attempt
+        self.ip_attempts[ip_address].append(current_time)
+        
+        # Check if should be banned
+        if len(self.ip_attempts[ip_address]) >= self.max_attempts:
+            self.banned_ips[ip_address] = current_time + self.ban_duration
+            remote_logger.warning(f"IP {ip_address} banned for {self.ban_duration}s after {self.max_attempts} failed attempts")
+            return True
+        
+        return False
+    
+    def clear_failed_attempts(self, ip_address):
+        """Clear failed attempts for an IP (after successful auth)"""
+        if ip_address in self.ip_attempts:
+            del self.ip_attempts[ip_address]
+    
     def _handle_client(self, client_socket, address):
         """Handle communication with a client"""
-        logging.info(f"Handling connection from {address[0]}:{address[1]}")
+        ip_address = address[0]
+        logging.info(f"Handling connection from {ip_address}:{address[1]}")
         
         try:
+            # Check if IP is banned
+            if self.is_ip_banned(ip_address):
+                remote_logger.warning(f"Rejected connection from banned IP: {ip_address}")
+                ban_msg = RemoteMessage(
+                    command="AUTH",
+                    status=STATUS_ERROR,
+                    message="IP temporarily banned due to too many failed attempts"
+                )
+                self._send_message(client_socket, ban_msg)
+                client_socket.close()
+                if client_socket in self.client_sockets:
+                    del self.client_sockets[client_socket]
+                return
+            
+            # Check whitelist if enabled
+            if self.whitelisted_ips and ip_address not in self.whitelisted_ips:
+                remote_logger.warning(f"Rejected connection from non-whitelisted IP: {ip_address}")
+                whitelist_msg = RemoteMessage(
+                    command="AUTH",
+                    status=STATUS_ERROR,
+                    message="IP not whitelisted"
+                )
+                self._send_message(client_socket, whitelist_msg)
+                client_socket.close()
+                if client_socket in self.client_sockets:
+                    del self.client_sockets[client_socket]
+                return
+            
             # Set a longer timeout during authentication
             client_socket.settimeout(30)
             
@@ -243,25 +329,33 @@ class RemoteServer:
                 status=STATUS_AUTH_REQUIRED,
                 message="Authentication required"
             )
-            logging.info(f"Sending auth request to {address[0]}:{address[1]}")
+            logging.info(f"Sending auth request to {ip_address}:{address[1]}")
             self._send_message(client_socket, auth_required)
             
             # Wait for auth response
-            logging.info(f"Waiting for auth response from {address[0]}:{address[1]}")
+            logging.info(f"Waiting for auth response from {ip_address}:{address[1]}")
             auth_response = self._receive_message(client_socket)
             if not auth_response or auth_response.command != "AUTH":
-                logging.warning(f"Invalid authentication response from {address[0]}:{address[1]}")
+                logging.warning(f"Invalid authentication response from {ip_address}:{address[1]}")
+                self.record_failed_attempt(ip_address)
                 client_socket.close()
                 if client_socket in self.client_sockets:
                     del self.client_sockets[client_socket]
                 return
             
             # Verify auth key
-            logging.info(f"Received auth response from {address[0]}:{address[1]}")
+            logging.info(f"Received auth response from {ip_address}:{address[1]}")
             provided_key = auth_response.data.get("auth_key", "")
             if self.verify_auth_key(provided_key):
-                logging.info(f"Client authenticated: {address[0]}:{address[1]}")
+                logging.info(f"Client authenticated: {ip_address}:{address[1]}")
                 self.client_sockets[client_socket] = (address, True)  # Mark as authenticated
+                
+                # Clear any failed attempts
+                self.clear_failed_attempts(ip_address)
+                
+                # Auto-whitelist successful connections
+                if ip_address not in self.whitelisted_ips:
+                    self.add_whitelisted_ip(ip_address)
                 
                 auth_success = RemoteMessage(
                     command="AUTH",
@@ -273,11 +367,15 @@ class RemoteServer:
                 # Process commands from this client
                 self._process_client_commands(client_socket, address)
             else:
-                logging.warning(f"Authentication failed for {address[0]}:{address[1]}")
+                logging.warning(f"Authentication failed for {ip_address}:{address[1]}")
+                
+                # Record failed attempt
+                banned = self.record_failed_attempt(ip_address)
+                
                 auth_failed = RemoteMessage(
                     command="AUTH",
                     status=STATUS_AUTH_FAILED,
-                    message="Authentication failed"
+                    message="Authentication failed" + (" - IP temporarily banned" if banned else "")
                 )
                 self._send_message(client_socket, auth_failed)
                 client_socket.close()
@@ -285,7 +383,7 @@ class RemoteServer:
                     del self.client_sockets[client_socket]
         
         except Exception as e:
-            logging.error(f"Error handling client {address[0]}:{address[1]}: {str(e)}")
+            logging.error(f"Error handling client {ip_address}:{address[1]}: {str(e)}")
             try:
                 client_socket.close()
             except:

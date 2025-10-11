@@ -33,8 +33,9 @@ def check_firewall_rule(rule_name):
 def add_firewall_rule(rule_name, port):
     """Add a firewall rule to allow TCP traffic on a specific port."""
     if check_firewall_rule(rule_name):
-        logging.info(f"Firewall rule '{rule_name}' already exists.")
-        return True, f"Firewall rule '{rule_name}' already exists."
+        success_msg = f"Firewall rule '{rule_name}' already exists."
+        logging.info(success_msg)
+        return True, success_msg
 
     try:
         # Command to add the firewall rule
@@ -48,8 +49,9 @@ def add_firewall_rule(rule_name, port):
         ]
         # Run with admin rights if possible, but will fail gracefully if not
         subprocess.run(command, capture_output=True, text=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
-        logging.info(f"Successfully added firewall rule '{rule_name}' for port {port}.")
-        return True, f"Firewall rule '{rule_name}' for port {port} added."
+        success_msg = f"Successfully added firewall rule '{rule_name}' for port {port}."
+        logging.info(success_msg)
+        return True, success_msg
     except subprocess.CalledProcessError as e:
         error_message = f"Failed to add firewall rule. Try running as Administrator. Error: {e.stderr}"
         logging.error(error_message)
@@ -74,27 +76,17 @@ def calculate_next_backup_time():
     # Check all possible backup times for today and tomorrow
     potential_times = []
     for day_offset in [0, 1]:  # Today and tomorrow
+        check_date = (now + timedelta(days=day_offset)).date()
+        
         # Database backups at configured hours
         for hour in DB_BACKUP_HOURS:
-            backup_time = now.replace(
-                day=now.day + day_offset,
-                hour=hour, 
-                minute=BACKUP_MINUTE, 
-                second=0, 
-                microsecond=0
-            )
+            backup_time = datetime.combine(check_date, datetime.min.time()).replace(hour=hour, minute=BACKUP_MINUTE)
             if backup_time > now:
                 potential_times.append((backup_time, "Database"))
         
         # Server backups at configured hours
         for hour in SERVER_BACKUP_HOURS:
-            backup_time = now.replace(
-                day=now.day + day_offset,
-                hour=hour, 
-                minute=BACKUP_MINUTE, 
-                second=0, 
-                microsecond=0
-            )
+            backup_time = datetime.combine(check_date, datetime.min.time()).replace(hour=hour, minute=BACKUP_MINUTE)
             if backup_time > now:
                 potential_times.append((backup_time, "Server"))
     
@@ -103,6 +95,8 @@ def calculate_next_backup_time():
         potential_times.sort(key=lambda x: x[0])  # Sort by time
         return potential_times[0]  # Return time and type
     else:
-        # Fallback to tomorrow
+        # Fallback to tomorrow's first backup
         tomorrow = now + timedelta(days=1)
-        return (tomorrow.replace(hour=DB_BACKUP_HOURS[0], minute=BACKUP_MINUTE, second=0, microsecond=0), "Database")
+        first_hour = min(DB_BACKUP_HOURS + SERVER_BACKUP_HOURS)
+        backup_time = datetime.combine(tomorrow.date(), datetime.min.time()).replace(hour=first_hour, minute=BACKUP_MINUTE)
+        return backup_time, "Database/Server"

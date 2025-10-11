@@ -32,6 +32,7 @@ echo [Step 2/6] Installing Python dependencies...
 echo This may take a few minutes...
 echo.
 
+REM Note: secrets and hashlib are built-in Python modules, no need to install them
 set PACKAGES=pyinstaller requests beautifulsoup4 psutil pywin32 winshell Pillow
 
 for %%p in (%PACKAGES%) do (

@@ -12,7 +12,9 @@ DEFAULT_SETTINGS = {
     "remote_control": {
         "enabled": False,
         "port": 40100,
-        "auth_key": None
+        "auth_key": None,
+        "whitelist_enabled": False,
+        "whitelisted_ips": []
     },
     "ui": {
         "last_tab": 0
