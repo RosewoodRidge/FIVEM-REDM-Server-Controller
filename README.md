@@ -1,5 +1,7 @@
 # FIVEM & REDM Server Controller Utility
 
+![FIVEM & REDM Server Controller](https://rosewoodridge.xyz/img/fivem-redm-server-utility.jpg)
+
 A comprehensive, all-in-one management solution for FiveM and RedM servers. Automate backups, control your server, and keep everything up-to-date with an intuitive graphical interface.
 
 ## 🚀 Key Features
