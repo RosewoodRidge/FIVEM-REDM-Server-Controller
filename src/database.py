@@ -1,12 +1,27 @@
 import os
 import subprocess
 import logging
+import shutil
 from datetime import datetime
 # Import from config which will have values applied from JSON
 from config import (
     BACKUP_DIR, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME,
     MYSQLDUMP_PATH, MYSQL_PATH
 )
+from config_manager import is_windows
+
+def find_executable(name):
+    """Find executable in PATH or use configured path"""
+    # If configured path exists, use it
+    if os.path.isfile(name) and os.access(name, os.X_OK if not is_windows() else os.F_OK):
+        return name
+    
+    # Otherwise try to find in PATH
+    found = shutil.which(name.replace('.exe', '') if is_windows() else name)
+    if found:
+        return found
+    
+    return name  # Return original and let subprocess fail with clear error
 
 def create_backup():
     """
@@ -27,9 +42,12 @@ def create_backup():
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     backup_file = os.path.join(BACKUP_DIR, f"backup-{timestamp}.sql")
 
+    # Find mysqldump executable
+    mysqldump_exe = find_executable(MYSQLDUMP_PATH)
+    
     # Construct mysqldump command
     command = [
-        MYSQLDUMP_PATH,
+        mysqldump_exe,
         f'--host={DB_HOST}',
         f'--user={DB_USER}',
     ]
@@ -54,7 +72,7 @@ def create_backup():
         return True, backup_file
 
     except FileNotFoundError:
-        error_message = f"Error: The 'mysqldump' executable was not found at the specified path: '{MYSQLDUMP_PATH}'. Please check the path."
+        error_message = f"Error: The 'mysqldump' executable was not found. Please install MySQL client tools or configure MYSQLDUMP_PATH in settings."
         logging.error(error_message)
         return False, error_message
     except subprocess.CalledProcessError as e:
@@ -76,9 +94,12 @@ def restore_backup(backup_file):
     if not os.path.exists(backup_file):
         return False, f"Backup file not found: {backup_file}"
     
+    # Find mysql executable
+    mysql_exe = find_executable(MYSQL_PATH)
+    
     # Construct mysql command to restore
     command = [
-        MYSQL_PATH,
+        mysql_exe,
         f'--host={DB_HOST}',
         f'--user={DB_USER}',
     ]
@@ -104,7 +125,7 @@ def restore_backup(backup_file):
         return True, success_message
 
     except FileNotFoundError:
-        error_message = f"Error: The 'mysql' executable was not found at the specified path: '{MYSQL_PATH}'. Please check the path."
+        error_message = f"Error: The 'mysql' executable was not found. Please install MySQL client tools or configure MYSQL_PATH in settings."
         logging.error(error_message)
         return False, error_message
     except subprocess.CalledProcessError as e:

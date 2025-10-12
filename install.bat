@@ -1,32 +1,67 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM FIVEM & REDM Server Controller Installer (Batch Version)
-REM This installer works without requiring Python to be installed
-
 echo ========================================
 echo FIVEM ^& REDM Server Controller Installer
 echo ========================================
 echo.
 
-REM Step 1: Check if Python is installed
-echo [Step 1/6] Checking Python installation...
+REM Check if Python is installed
 python --version >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: Python is not installed or not in PATH.
-    echo.
-    echo Please install Python 3.8 or newer from https://www.python.org/downloads/
-    echo Make sure to check "Add Python to PATH" during installation.
-    echo.
+if %errorlevel% neq 0 (
+    call :install_python
+    if !errorlevel! neq 0 exit /b 1
+)
+
+REM Get Python version
+for /f "tokens=2" %%i in ('python --version') do set PYTHON_VERSION=%%i
+echo Found Python version: !PYTHON_VERSION!
+echo.
+
+goto :continue_install
+
+:install_python
+echo Python is not installed.
+echo.
+set /p "choice=Would you like to install Python automatically? (Y/N): "
+if /i not "!choice!"=="Y" (
+    echo Please install Python manually from https://www.python.org/downloads/
     pause
     exit /b 1
 )
 
-REM Get Python version
-for /f "tokens=2" %%i in ('python --version 2^>^&1') do set PYTHON_VERSION=%%i
-echo Found Python version: %PYTHON_VERSION%
-echo.
+set "TEMP_DIR=%TEMP%\python_install"
+if not exist "!TEMP_DIR!" mkdir "!TEMP_DIR!"
 
+set "INSTALLER=!TEMP_DIR!\python-installer.exe"
+echo Downloading Python 3.14.0...
+powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.14.0/python-3.14.0-amd64.exe' -OutFile '!INSTALLER!'"
+
+if not exist "!INSTALLER!" (
+    echo ERROR: Download failed
+    pause
+    exit /b 1
+)
+
+echo Installing Python...
+"!INSTALLER!" /quiet InstallAllUsers=1 PrependPath=1 Include_pip=1 Include_test=0
+del "!INSTALLER!"
+
+REM Refresh PATH
+for /f "tokens=2*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path') do set "PATH=%%b"
+for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path') do set "PATH=!PATH!;%%b"
+
+python --version >nul 2>&1
+if !errorlevel! neq 0 (
+    echo WARNING: Python installed but not in PATH. Please restart installer.
+    pause
+    exit /b 1
+)
+
+echo Python installed successfully!
+exit /b 0
+
+:continue_install
 REM Step 2: Install dependencies
 echo [Step 2/6] Installing Python dependencies...
 echo This may take a few minutes...

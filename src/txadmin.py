@@ -7,11 +7,11 @@ import shutil
 import glob
 import time
 import psutil
+import tarfile
 from datetime import datetime
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-import ctypes
-from ctypes import wintypes
+from config_manager import is_windows
 import stat
 import json
 
@@ -518,7 +518,8 @@ def download_txadmin(url, callback=None):
 
 def extract_txadmin(file_path, callback=None):
     """
-    Extracts the txAdmin 7z archive to the server directory using 7-Zip.
+    Extracts the txAdmin archive to the server directory.
+    Uses 7-Zip on Windows, tar on Linux.
     Returns tuple (success, message)
     """
     if callback:
@@ -529,71 +530,53 @@ def extract_txadmin(file_path, callback=None):
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Update file not found: {file_path}")
         
-        # Check if 7-Zip executable exists
-        if not os.path.exists(SEVEN_ZIP_PATH):
-            raise FileNotFoundError(f"7-Zip executable not found: {SEVEN_ZIP_PATH}")
-        
-        # Stop FXServer.exe if it's running
-        was_running, stop_success, server_info = stop_fxserver(callback)
-        
-        if was_running and not stop_success:
-            if callback:
-                callback("Warning: Could not stop all FXServer processes. Update may fail or require a restart.", 80)
-        
-        # Wait a little extra time to ensure processes are fully terminated
-        time.sleep(3)
-        
-        # Check if server directory exists, clear it if it does
-        if os.path.exists(TXADMIN_SERVER_DIR):
-            if callback:
-                callback("Removing existing server files...", 82)
+        # Platform-specific extraction
+        if is_windows():
+            # Use 7-Zip on Windows
+            if not os.path.exists(SEVEN_ZIP_PATH):
+                # Try to find 7z in PATH
+                seven_zip = shutil.which('7z')
+                if not seven_zip:
+                    raise FileNotFoundError(f"7-Zip executable not found. Please install 7-Zip or configure SEVEN_ZIP_PATH in settings.")
+            else:
+                seven_zip = SEVEN_ZIP_PATH
             
-            # Try multiple attempts to remove the directory
-            removal_success = False
-            for attempt in range(3):
-                try:
-                    if callback and attempt > 0:
-                        callback(f"Removal attempt {attempt+1}...", 82)
-                    
-                    if take_ownership_and_remove(TXADMIN_SERVER_DIR, callback):
-                        removal_success = True
-                        break
-                    
-                    # Wait before retrying
-                    time.sleep(2)
-                except Exception as e:
-                    if callback:
-                        callback(f"Removal attempt {attempt+1} failed: {str(e)}", 82)
-                    time.sleep(2)
+            # Extract the 7z archive using 7-Zip command line
+            if callback:
+                callback("Extracting files...", 85)
             
-            if not removal_success:
-                raise Exception("Failed to remove existing server directory after multiple attempts")
-        
-        # Create server directory
-        os.makedirs(TXADMIN_SERVER_DIR, exist_ok=True)
-        
-        # Extract the 7z archive using 7-Zip command line
-        if callback:
-            callback("Extracting files...", 85)
-        
-        # Command: 7z x archive.7z -oOutputDir
-        extract_command = [
-            SEVEN_ZIP_PATH,
-            'x',            # Extract with full paths
-            file_path,      # Source archive
-            f'-o{TXADMIN_SERVER_DIR}',  # Output directory
-            '-y'            # Yes to all prompts
-        ]
-        
-        process = subprocess.run(
-            extract_command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        if process.returncode != 0:
-            raise Exception(f"7-Zip extraction failed: {process.stderr}")
+            extract_command = [
+                seven_zip,
+                'x',
+                file_path,
+                f'-o{TXADMIN_SERVER_DIR}',
+                '-y'
+            ]
+            
+            process = subprocess.run(
+                extract_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            if process.returncode != 0:
+                raise Exception(f"7-Zip extraction failed: {process.stderr}")
+        else:
+            # Use tar on Linux (FiveM distributes .tar.xz for Linux)
+            if callback:
+                callback("Extracting files...", 85)
+            
+            # Determine compression type
+            if file_path.endswith('.tar.xz'):
+                mode = 'r:xz'
+            elif file_path.endswith('.tar.gz'):
+                mode = 'r:gz'
+            else:
+                mode = 'r'
+            
+            with tarfile.open(file_path, mode) as tar:
+                tar.extractall(path=TXADMIN_SERVER_DIR)
         
         if callback:
             callback("Extraction complete!", 95)

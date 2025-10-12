@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import urllib.request
 from datetime import datetime, timedelta
-from config_manager import get_logs_dir, get_data_dir
+from config_manager import get_logs_dir, get_data_dir, is_windows
 
 # Set up specific logger for update operations
 update_logger = logging.getLogger('update')
@@ -300,86 +300,87 @@ def apply_update(download_url, progress_callback=None):
         update_logger.info(f"Using source directory: {source_dir}")
         
         if progress_callback:
-            progress_callback("Backing up configuration...", 70)
-            
-        # Save current config values
-        app_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.join(app_dir, "config.py")
-        user_configs = extract_config_values(config_path)
+            progress_callback("Preparing update installation...", 70)
+        
+        # Determine installation directory
+        if getattr(sys, 'frozen', False):
+            # Running as executable - get the directory containing the exe
+            app_dir = os.path.dirname(sys.executable)
+            # The src files should be in a 'src' subdirectory relative to exe
+            # Or we copy directly to where the exe is
+            install_root = os.path.dirname(app_dir) if os.path.basename(app_dir) == 'dist' else app_dir
+        else:
+            # Running as script - get parent directory of src
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+            install_root = os.path.dirname(app_dir)
+        
+        update_logger.info(f"Install root: {install_root}")
         
         if progress_callback:
             progress_callback("Installing update...", 80)
         
-        # Create a batch file to handle the update after the app exits
-        # This approach is more reliable than using Python for this task
-        bat_path = os.path.join(temp_dir, "update.bat")
-        update_logger.info(f"Creating update batch file: {bat_path}")
-        
-        # Create a temporary Python script to update the config
-        config_updater_path = os.path.join(temp_dir, "update_config.py")
-        with open(config_updater_path, 'w') as f:
-            f.write(f'''
-import json
-import sys
-
-def update_config():
-    try:
-        with open(r"{config_path}", 'r') as f:
-            config_content = f.read()
-        
-        # Load user configs
-        user_configs = {json.dumps(user_configs)}
-        
-        # Update config
-        with open(r"{config_path}", 'w') as f:
-            for line in config_content.splitlines():
-                modified = False
-                for var_name, value in user_configs.items():
-                    if line.strip().startswith(f"{{var_name}} = "):
-                        f.write(f"{{var_name}} = {{value}}\\n")
-                        modified = True
-                        break
-                if not modified:
-                    f.write(line + "\\n")
-        print("Config updated successfully")
-        return 0
-    except Exception as e:
-        print(f"Error updating config: {{e}}")
-        return 1
-
-if __name__ == "__main__":
-    sys.exit(update_config())
-''')
-        
-        # Create the actual batch file for update
-        with open(bat_path, 'w') as f:
-            f.write(f'''@echo off
+        # Create update script
+        if is_windows():
+            script_path = os.path.join(temp_dir, "update.bat")
+            install_script = os.path.join(install_root, "install.bat")
+            
+            with open(script_path, 'w') as f:
+                f.write(f'''@echo off
 echo Starting update process...
 timeout /t 3 /nobreak > nul
 
-echo Copying files from {source_dir} to {app_dir}...
-xcopy "{source_dir}\\*" "{app_dir}" /E /I /Y /Q
+echo Copying source files from {source_dir} to {install_root}...
+xcopy "{source_dir}\\*" "{install_root}" /E /I /Y /Q
 
-echo Updating configuration...
-"{sys.executable}" "{config_updater_path}"
+echo Running install script to rebuild executables...
+cd /d "{install_root}"
+call "{install_script}"
 
 echo Cleaning up temporary files...
+timeout /t 2 /nobreak > nul
 rmdir /S /Q "{temp_dir}"
 
-echo Starting application...
-start "" "{sys.executable}" "{os.path.join(app_dir, 'app.py')}"
+echo Update complete! Application should now be starting...
 exit
 ''')
+        else:
+            script_path = os.path.join(temp_dir, "update.sh")
+            install_script = os.path.join(install_root, "install.sh")
+            
+            with open(script_path, 'w') as f:
+                f.write(f'''#!/bin/bash
+echo "Starting update process..."
+sleep 3
 
-        # Launch the update batch file and exit
+echo "Copying source files from {source_dir} to {install_root}..."
+cp -r "{source_dir}/"* "{install_root}/"
+
+echo "Running install script to rebuild executables..."
+cd "{install_root}"
+bash "{install_script}"
+
+echo "Cleaning up temporary files..."
+sleep 2
+rm -rf "{temp_dir}"
+
+echo "Update complete!"
+''')
+            # Make script executable on Linux
+            os.chmod(script_path, 0o755)
+        
+        # Launch the update script and exit
         if progress_callback:
             progress_callback("Update ready, restarting application...", 100)
         
-        update_logger.info(f"Starting update batch file: {bat_path}")
-        subprocess.Popen(bat_path, shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        update_logger.info(f"Starting update script: {script_path}")
+        
+        if is_windows():
+            subprocess.Popen(script_path, shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        else:
+            subprocess.Popen(['bash', script_path])
         
         # Return success - the calling code should exit the application
-        return True, "Update downloaded successfully. The application will now restart."
+        return True, "Update downloaded successfully. The application will now restart and rebuild."
         
     except Exception as e:
         error_message = f"Update failed: {str(e)}"

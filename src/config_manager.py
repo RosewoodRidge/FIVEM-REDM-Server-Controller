@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import logging
+import platform
 
 def get_config_dir():
     """Get the directory where config files should be stored"""
@@ -20,26 +21,59 @@ def get_config_file():
     """Get the path to the configuration JSON file"""
     return os.path.join(get_config_dir(), 'config.json')
 
+def get_platform():
+    """Get the current platform (windows, linux, darwin)"""
+    return platform.system().lower()
+
+def is_windows():
+    """Check if running on Windows"""
+    return get_platform() == 'windows'
+
+def is_linux():
+    """Check if running on Linux"""
+    return get_platform() == 'linux'
+
+def get_default_mysqldump_path():
+    """Get platform-specific default mysqldump path"""
+    if is_windows():
+        return r'C:\xampp\mysql\bin\mysqldump.exe'
+    else:
+        return 'mysqldump'  # Should be in PATH on Linux
+
+def get_default_mysql_path():
+    """Get platform-specific default mysql path"""
+    if is_windows():
+        return r'C:\xampp\mysql\bin\mysql.exe'
+    else:
+        return 'mysql'  # Should be in PATH on Linux
+
+def get_default_7zip_path():
+    """Get platform-specific default 7-zip path"""
+    if is_windows():
+        return r'C:\Program Files\7-Zip\7z.exe'
+    else:
+        return '7z'  # Should be in PATH on Linux
+
 def load_config():
     """Load configuration from JSON file, return defaults if file doesn't exist"""
     config_file = get_config_file()
     
-    # Default configuration
+    # Default configuration with platform-specific paths
     default_config = {
         'DB_HOST': 'localhost',
         'DB_USER': 'root',
         'DB_PASSWORD': '',
         'DB_NAME': 'my_database',
-        'BACKUP_DIR': r'C:\backups\database',
-        'MYSQLDUMP_PATH': r'C:\xampp\mysql\bin\mysqldump.exe',
-        'MYSQL_PATH': r'C:\xampp\mysql\bin\mysql.exe',
-        'SERVER_FOLDER': r'C:\server\resources',
-        'SERVER_BACKUP_DIR': r'C:\backups\server',
+        'BACKUP_DIR': os.path.join(os.path.expanduser('~'), 'backups', 'database'),
+        'MYSQLDUMP_PATH': get_default_mysqldump_path(),
+        'MYSQL_PATH': get_default_mysql_path(),
+        'SERVER_FOLDER': os.path.join(os.path.expanduser('~'), 'server', 'resources'),
+        'SERVER_BACKUP_DIR': os.path.join(os.path.expanduser('~'), 'backups', 'server'),
         'SERVER_BACKUP_KEEP_COUNT': 10,
-        'TXADMIN_SERVER_DIR': r'C:\server',
-        'TXADMIN_BACKUP_DIR': r'C:\backups\txadmin',
-        'TXADMIN_DOWNLOAD_DIR': r'C:\downloads',
-        'SEVEN_ZIP_PATH': r'C:\Program Files\7-Zip\7z.exe',
+        'TXADMIN_SERVER_DIR': os.path.join(os.path.expanduser('~'), 'server'),
+        'TXADMIN_BACKUP_DIR': os.path.join(os.path.expanduser('~'), 'backups', 'txadmin'),
+        'TXADMIN_DOWNLOAD_DIR': os.path.join(os.path.expanduser('~'), 'downloads'),
+        'SEVEN_ZIP_PATH': get_default_7zip_path(),
         'TXADMIN_KEEP_COUNT': 5,
         'DB_BACKUP_HOURS': [3, 15],
         'SERVER_BACKUP_HOURS': [3],

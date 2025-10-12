@@ -4,7 +4,7 @@ import logging
 import subprocess
 from datetime import datetime, timedelta
 from config import LOG_FILE, DB_BACKUP_HOURS, SERVER_BACKUP_HOURS, BACKUP_MINUTE
-from config_manager import get_logs_dir
+from config_manager import get_logs_dir, is_windows
 
 # Ensure logs directory exists
 logs_dir = get_logs_dir()
@@ -18,7 +18,11 @@ logging.basicConfig(
 )
 
 def check_firewall_rule(rule_name):
-    """Check if a firewall rule exists."""
+    """Check if a firewall rule exists (Windows only)."""
+    if not is_windows():
+        logging.info("Firewall rules are not applicable on non-Windows systems")
+        return True  # Return True to skip firewall checks on Linux
+    
     try:
         # Use subprocess.run to check for the rule
         result = subprocess.run(
@@ -31,7 +35,13 @@ def check_firewall_rule(rule_name):
         return False
 
 def add_firewall_rule(rule_name, port):
-    """Add a firewall rule to allow TCP traffic on a specific port."""
+    """Add a firewall rule to allow TCP traffic on a specific port (Windows only)."""
+    if not is_windows():
+        logging.info(f"Firewall rule management not needed on {sys.platform}")
+        success_msg = f"Firewall rules not applicable on non-Windows systems"
+        logging.info(success_msg)
+        return True, success_msg
+
     if check_firewall_rule(rule_name):
         success_msg = f"Firewall rule '{rule_name}' already exists."
         logging.info(success_msg)
