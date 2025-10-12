@@ -2,8 +2,36 @@
 
 All notable changes to the FIVEM & REDM Server Controller will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [2.7.7]
+
+### Added
+- **Discord Webhook Integration** - Send notifications to Discord for server events
+  - Separate Discord Webhooks configuration tab for easy management
+  - Configurable webhook URL with test functionality
+  - Per-event notification toggles (server start/stop/restart, backups, updates, errors)
+  - Customizable message content for each event type with emoji support
+  - Color-coded embed messages with hex color input and live preview
+  - Default messages included with appropriate emojis for all events
+  - Rich embed format with timestamps and footer branding
+- Discord webhook notifications for:
+  - Server start, stop, and restart operations
+  - Database and server backup completion
+  - TxAdmin updates
+  - Backup failures and server errors
+- Webhook configuration saved to JSON config file
+- Input validation for webhook URLs
+
+### Changed
+- Main application window width increased to 975px (from 925px) to accommodate Discord tab
+- Discord webhook settings separated from main configuration tab
+- Improved error handling for Discord webhook delivery
+- Enhanced logging for webhook operations with detailed error responses
+
+### Fixed
+- Discord webhook HTTP 403 errors resolved with proper headers and timestamp format
+- Webhook requests now include User-Agent and Content-Length headers
+- Timezone-aware timestamps for Discord API compatibility
+- Better error reporting when webhook delivery fails
 
 ## [2.7.6]
 

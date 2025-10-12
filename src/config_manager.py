@@ -79,7 +79,23 @@ def load_config():
         'SERVER_BACKUP_HOURS': [3],
         'BACKUP_MINUTE': 0,
         'AUTO_UPDATE_TXADMIN': True,
-        'SERVER_BACKUP_THROTTLE': 0.1
+        'SERVER_BACKUP_THROTTLE': 0.1,
+        'DISCORD_WEBHOOK': {
+            'enabled': False,
+            'webhook_url': '',
+            'notifications': {
+                'server_start': True,
+                'server_stop': True,
+                'server_restart': True,
+                'database_backup': True,
+                'server_backup': True,
+                'txadmin_update': True,
+                'backup_failed': True,
+                'server_error': True
+            },
+            'messages': {},
+            'colors': {}
+        }
     }
     
     if os.path.exists(config_file):

@@ -19,6 +19,7 @@ from app.txadmin_update import TxAdminUpdateTab
 from app.activity_log import ActivityLogTab
 from app.remote_control import RemoteControlTab
 from app.configuration import ConfigurationTab
+from app.discord_config import DiscordConfigTab
 
 # Import from other modules
 from config import *
@@ -36,7 +37,7 @@ class BackupApp:
         try:
             self.root = root
             self.root.title("FIVEM & REDM Server Controller and Backup App")
-            self.root.geometry("850x800")
+            self.root.geometry("975x800")  # Increased from 850x800 to 925x800
             self.root.configure(bg=COLORS['bg'])
             self.root.protocol("WM_DELETE_WINDOW", self.on_close)
             
@@ -76,6 +77,7 @@ class BackupApp:
             self.tabs['txadmin_update'] = TxAdminUpdateTab(self.notebook, self)
             self.tabs['activity_log'] = ActivityLogTab(self.notebook, self)
             self.tabs['remote_control'] = RemoteControlTab(self.notebook, self)
+            self.tabs['discord_config'] = DiscordConfigTab(self.notebook, self)
             self.tabs['configuration'] = ConfigurationTab(self.notebook, self)
             
             # Add the activity log's text widget as the app-wide log text

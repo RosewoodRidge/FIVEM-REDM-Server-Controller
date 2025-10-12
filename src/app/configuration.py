@@ -287,6 +287,12 @@ class ConfigurationTab:
             config_dict['AUTO_UPDATE_TXADMIN'] = True
             config_dict['SERVER_BACKUP_THROTTLE'] = 0.1
             
+            # Don't touch Discord webhook config - it's managed by the Discord tab
+            # Load existing config to preserve Discord settings
+            existing_config = load_config()
+            if 'DISCORD_WEBHOOK' in existing_config:
+                config_dict['DISCORD_WEBHOOK'] = existing_config['DISCORD_WEBHOOK']
+            
             # Save to JSON
             success, result = save_config(config_dict)
             

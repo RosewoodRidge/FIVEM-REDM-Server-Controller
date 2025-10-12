@@ -6,6 +6,7 @@ import time
 from config import COLORS, TXADMIN_SERVER_DIR
 from app.common import ModernScrolledText
 from txadmin import find_fxserver_processes, start_fxserver, stop_fxserver
+from discord_webhook import send_discord_webhook
 
 class ServerControlTab:
     def __init__(self, notebook, app):
@@ -170,8 +171,11 @@ class ServerControlTab:
             success, message = start_fxserver(callback=callback)
             if success:
                 self.server_log("Server started successfully")
+                # Send Discord webhook
+                send_discord_webhook('server_start')
             else:
                 self.server_log(f"Failed to start server: {message}")
+                send_discord_webhook('server_error', custom_message=f"❌ **Server Start Failed**\n{message}")
             
             # Broadcast status change to remote clients
             if hasattr(self.app, 'broadcast_server_status'):
@@ -191,8 +195,11 @@ class ServerControlTab:
             was_running, success, message = stop_fxserver(callback=callback)
             if success:
                 self.server_log("Server stopped successfully")
+                # Send Discord webhook
+                send_discord_webhook('server_stop')
             else:
                 self.server_log(f"Failed to stop server: {message}")
+                send_discord_webhook('server_error', custom_message=f"❌ **Server Stop Failed**\n{message}")
             
             # Broadcast status change to remote clients
             if hasattr(self.app, 'broadcast_server_status'):
@@ -203,6 +210,9 @@ class ServerControlTab:
     def restart_server(self):
         """Restart the FXServer.exe process"""
         self.server_log("Restarting FXServer.exe...")
+        
+        # Send Discord webhook for restart
+        send_discord_webhook('server_restart')
         
         # Run in a separate thread to avoid freezing UI
         def do_restart():

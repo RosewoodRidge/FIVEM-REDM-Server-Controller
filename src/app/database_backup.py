@@ -7,6 +7,7 @@ from config import COLORS, DB_BACKUP_HOURS, BACKUP_MINUTE
 from app.common import ModernScrolledText
 from database import create_backup, restore_backup, delete_old_backups, get_backup_files
 from utils import calculate_next_backup_time
+from discord_webhook import send_discord_webhook
 
 class DatabaseBackupTab:
     def __init__(self, notebook, app):
@@ -117,6 +118,9 @@ class DatabaseBackupTab:
                 if deleted:
                     self.app.log_message(f"Deleted {deleted} old database backup(s)")
                 
+                # Send Discord webhook
+                send_discord_webhook('database_backup')
+                
                 # Update local UI
                 self.app.root.after(0, self.update_backup_list)
                 
@@ -132,6 +136,8 @@ class DatabaseBackupTab:
                     self.app.broadcast_progress("Database backup completed successfully", 100)
             else:
                 self.app.log_message(f"Database backup failed: {message}")
+                # Send Discord webhook for failure
+                send_discord_webhook('backup_failed', custom_message=f"❌ **Database Backup Failed**\n{message}")
                 if hasattr(self.app, 'broadcast_progress'):
                     self.app.broadcast_progress(f"Database backup failed: {message}", 0)
             

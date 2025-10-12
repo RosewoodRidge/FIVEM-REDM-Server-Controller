@@ -6,6 +6,7 @@ from datetime import datetime
 from config import COLORS, SERVER_FOLDER, SERVER_BACKUP_HOURS, SERVER_BACKUP_KEEP_COUNT
 from app.common import ModernScrolledText
 from server import backup_server_folder, restore_server_backup, delete_old_server_backups, get_server_backup_files
+from discord_webhook import send_discord_webhook
 
 class ServerBackupTab:
     def __init__(self, notebook, app):
@@ -122,6 +123,9 @@ class ServerBackupTab:
                 if deleted:
                     self.app.log_message(f"Deleted {deleted} old server backup(s)")
                 
+                # Send Discord webhook
+                send_discord_webhook('server_backup')
+                
                 # Update local UI
                 self.app.root.after(0, self.update_server_backup_list)
                 
@@ -133,6 +137,8 @@ class ServerBackupTab:
                     self.app.broadcast_progress("Server backup completed successfully", 100)
             else:
                 self.app.log_message(f"Server backup failed: {result}")
+                # Send Discord webhook for failure
+                send_discord_webhook('backup_failed', custom_message=f"❌ **Server Backup Failed**\n{result}")
                 if hasattr(self.app, 'broadcast_progress'):
                     self.app.broadcast_progress(f"Server backup failed: {result}", 0)
             

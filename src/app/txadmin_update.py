@@ -10,6 +10,7 @@ from txadmin import (
     get_latest_txadmin_url, backup_txadmin, download_txadmin, extract_txadmin,
     restore_txadmin_backup, delete_old_txadmin_backups, get_txadmin_backups
 )
+from discord_webhook import send_discord_webhook
 
 class TxAdminUpdateTab:
     def __init__(self, notebook, app):
@@ -193,6 +194,9 @@ class TxAdminUpdateTab:
                 # Step 6: Done
                 self.update_txadmin_status("TxAdmin update completed successfully!", 100)
                 
+                # Send Discord webhook
+                send_discord_webhook('txadmin_update')
+                
                 # Update the local backup list
                 self.app.root.after(0, self.update_txadmin_backup_list)
                 
@@ -203,6 +207,8 @@ class TxAdminUpdateTab:
             except Exception as e:
                 error_message = f"TxAdmin update failed with error: {str(e)}"
                 self.update_txadmin_status(error_message, 0)
+                # Send Discord webhook for failure
+                send_discord_webhook('server_error', custom_message=f"❌ **TxAdmin Update Failed**\n{str(e)}")
         
         threading.Thread(target=do_update, daemon=True).start()
     
