@@ -1,226 +1,160 @@
 # Changelog
 
-## [2.7.0] - 2025-10-12
+All notable changes to the FIVEM & REDM Server Controller will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [2.7.6]
 
 ### Added
-
-- **Integrated Configuration Tab**: The standalone Configuration Editor has been removed and integrated directly into the main application as a "Configuration" tab (⚙️) for a more streamlined user experience.
-- **Modular Application Structure**: The main and remote client applications have been refactored into a more modular structure. UI components for each tab are now in separate files, improving code organization and maintainability.
-- **Dynamic Configuration Loading**: The application now loads configuration from a `config.json` file and can be restarted from the UI to apply changes.
-
-### Changed
-
-- **Codebase Refactoring**: Major refactoring of `app.py` and `remote_app.py`. Logic is now split into `main.py` and individual tab modules within `app/` and `remote_app/` subdirectories.
-- **Build Process**: The `install.bat` script and PyInstaller spec files have been updated to reflect the removal of the standalone configuration editor.
-- **Documentation**: Updated `instructions.md` to remove references to the old configuration editor and guide users to the new integrated Configuration tab.
-
-### Removed
-
-- **Standalone Configuration Editor**: `FIVEM & REDM Configuration Editor.exe` is no longer built or included. All configuration is now managed within the main application.
-
-## [2.6.0] - 2025-10-11
-
-### Added
-
-#### Remote Control Security Enhancements
-
-- **IP Whitelisting System**
-  - Optional IP whitelist to restrict remote connections to specific IP addresses
-  - Auto-whitelist feature that adds successfully authenticated IPs to the whitelist
-  - UI for managing whitelisted IP addresses (add/remove)
-  - Whitelist enable/disable toggle in Remote Control settings
-  - Whitelist settings persist across application restarts
-
-- **Rate Limiting & Brute Force Protection**
-  - Failed authentication attempt tracking per IP address
-  - Maximum 5 failed authentication attempts within a 5-minute window
-  - Automatic 10-minute ban after exceeding maximum failed attempts
-  - Automatic cleanup of expired bans
-  - Attempt window tracking with sliding time window
-
-- **Enhanced Authentication Security**
-  - PBKDF2-HMAC-SHA256 password hashing with 100,000 iterations
-  - Random salt generation for each authentication key
-  - Secure authentication key storage in settings
-  - Authentication key generation using cryptographically secure random numbers
-  - 24-character formatted authentication keys with dashes for readability
-
-- **Connection Security**
-  - Server now binds to all network interfaces (0.0.0.0) instead of localhost only
-  - Automatic Windows Firewall rule creation for remote control port
-  - Connection attempt logging with IP addresses
-  - Detailed security event logging to `remote_control.log`
-
-#### Remote Control UI Improvements
-
-- **Whitelist Management Panel**
-  - Visual list of whitelisted IP addresses
-  - Add IP button with validation
-  - Remove IP button for selected addresses
-  - Clear status messages for whitelist operations
-  - Real-time whitelist display updates
-
-- **Connection Status Indicators**
-  - Connected clients list with authentication status
-  - Real-time client connection monitoring
-  - IP address and port display for each connected client
-  - Auto-refresh of client list every 5 seconds
-
-- **Security Information Display**
-  - Local IP address detection and display
-  - Configurable port number with validation
-  - Authentication key display with show/hide toggle
-  - Copy-to-clipboard button for authentication key
-  - Visual feedback for key operations
+- **Resource Monitoring Tab** - Remote app now displays live system resource statistics
+  - Real-time monitoring of CPU, RAM, Disk, and Network usage
+  - Live graphs showing 60 seconds of usage history
+  - Data updates every second with minimal delay
+  - Main app broadcasts resource stats to all connected remote clients
+- Cross-platform resource monitoring support (Windows and Linux)
+- New `psutil` dependency for system resource collection
 
 ### Changed
-
-- **Remote Protocol Updates**
-  - Added `collections.defaultdict` import for tracking connection attempts
-  - Enhanced `RemoteServer` class with security attributes
-  - Improved authentication flow with security checks
-  - Better error messages for security-related failures
-
-- **Settings Management**
-  - Updated default settings to include whitelist configuration
-  - Added `whitelist_enabled` and `whitelisted_ips` to remote control settings
-  - Settings automatically merge with defaults to ensure all keys exist
-
-- **Logging Improvements**
-  - Separate log file for remote control operations
-  - Security event logging (bans, authentication failures, whitelist changes)
-  - IP address logging for all connection attempts
-  - Detailed error logging for troubleshooting
-
-### Security
-
-- **Vulnerability Mitigations**
-  - Protection against brute force authentication attacks
-  - Prevention of unauthorized access through IP whitelisting
-  - Secure password storage using industry-standard hashing
-  - Rate limiting to prevent denial-of-service attacks
-  - Automatic banning of suspicious IPs
-
-- **Best Practices Implemented**
-  - Authentication required before any command execution
-  - Connection attempts logged for audit trail
-  - Failed authentication attempts tracked and limited
-  - Secure random number generation for authentication keys
-  - Strong cryptographic hashing for key verification
+- Remote app window width increased to 925px to accommodate new Resources tab
+- Resource monitor runs in background thread on main app (no UI impact)
 
 ### Fixed
+- Improved platform detection for disk usage monitoring
+- Enhanced Linux compatibility for file removal operations
 
-- Remote server now properly binds to all network interfaces for external connections
-- Authentication key persistence across application restarts
-- Firewall rule creation error handling with user feedback
-- IP address validation for whitelist entries
+## [2.7.5]
 
-### Technical Details
+### Added
+- Automatic application updates via GitHub releases
+- Update notification dialog with changelog display
+- Option to skip specific update versions
+- Update progress tracking with visual feedback
+- Automatic configuration preservation during updates
 
-#### Security Implementation
+### Changed
+- Improved update checking logic with 24-hour interval
+- Enhanced error handling for update operations
+- Update process now uses install scripts for clean updates
 
-**Rate Limiting Algorithm:**
-- Tracks failed authentication attempts per IP in a sliding 5-minute window
-- Clears old attempts outside the tracking window
-- Implements automatic ban with configurable duration
-- Ban expiration automatically removes IP from ban list
+### Fixed
+- Configuration settings now properly preserved across updates
+- Update download progress now shows accurate file size
 
-**Authentication Flow:**
-1. Client connects to server
-2. IP checked against ban list (reject if banned)
-3. IP checked against whitelist if enabled (reject if not whitelisted)
-4. Server sends AUTH_REQUIRED message
-5. Client responds with authentication key
-6. Server verifies key using PBKDF2-HMAC-SHA256
-7. On success: IP whitelisted, attempts cleared, client authenticated
-8. On failure: Attempt recorded, ban check performed, connection closed
+## [2.7.4] 
 
-**Whitelist Behavior:**
-- When disabled: All IPs can attempt authentication (subject to rate limiting)
-- When enabled: Only whitelisted IPs can attempt authentication
-- Auto-whitelist: Successful authentication automatically adds IP to whitelist
-- Persistent: Whitelist saved to settings and restored on application restart
+### Added
+- Cross-platform support for Windows and Linux
+- Platform-specific default paths for MySQL and 7-Zip
+- Automatic platform detection and configuration
+- JSON-based configuration system for easier management
+- Data and logs directories organized by execution mode (dev vs exe)
 
-#### Performance Impact
+### Changed
+- Configuration now stored in JSON format instead of Python file
+- Settings separated into `data/` folder for better organization
+- Logs moved to dedicated `logs/` folder
+- Remote control settings now stored in `remote_config.json`
 
-- Minimal overhead from security checks (< 1ms per connection)
-- Authentication uses 100,000 PBKDF2 iterations (industry standard)
-- IP tracking uses in-memory dictionaries for fast lookups
-- Automatic cleanup of expired tracking data prevents memory leaks
+### Fixed
+- Firewall rule management now properly skips on non-Windows systems
+- MySQL executables now found in PATH on Linux systems
+- File paths now use platform-appropriate separators
 
-### Dependencies
+## [2.6.0]
 
-No new external dependencies required. All security features use Python's built-in modules:
-- `secrets` - Cryptographically strong random number generation
-- `hashlib` - PBKDF2-HMAC-SHA256 hashing
-- `collections.defaultdict` - Connection attempt tracking
+### Added
+- TxAdmin automatic updates
+- TxAdmin backup before updates
+- TxAdmin version tracking
+- Rollback functionality for TxAdmin updates
+- Progress tracking for TxAdmin operations
 
-### Upgrade Notes
+### Changed
+- Improved TxAdmin update detection
+- Enhanced 7-Zip integration
+- Better error handling for TxAdmin operations
 
-**For Users Upgrading from 2.5.x:**
+### Fixed
+- TxAdmin extraction issues on some systems
+- Download progress reporting accuracy
 
-1. **Existing Remote Control Settings:**
-   - Authentication keys are preserved during upgrade
-   - Remote control will continue to work without changes
-   - Whitelist is disabled by default (opt-in security)
+## [2.5.0]
 
-2. **First-Time Setup After Upgrade:**
-   - Enable remote control to generate/use existing auth key
-   - Optionally enable IP whitelist for additional security
-   - Windows Firewall rule will be created automatically
+### Added
+- Server resources folder backup
+- Scheduled server backups
+- Server backup restoration
+- Configurable server backup retention
 
-3. **Migrating to Whitelist:**
-   - Identify IPs that need remote access
-   - Enable IP whitelist in Remote Control settings
-   - Add authorized IPs to the whitelist
-   - Test connection from each authorized IP
+### Changed
+- Improved backup scheduling system
+- Enhanced progress reporting for backups
 
-4. **Firewall Configuration:**
-   - Application will attempt to add firewall rule automatically
-   - If unsuccessful, manually allow TCP port 40100 (or configured port)
-   - Rule name: "FIVEM-REDM-Controller-Remote"
+## [2.4.0] 
 
-### Configuration
+### Added
+- FXServer process control (start, stop, restart)
+- Server status monitoring
+- Process ID tracking
+- Real-time server status updates
 
-**New Settings (in `settings.json`):**
+### Changed
+- Improved process detection for FXServer
+- Better error handling for server operations
 
-```json
-{
-  "remote_control": {
-    "enabled": false,
-    "port": 40100,
-    "auth_key": "xxxx-xxxx-xxxx-xxxx-xxxx",
-    "whitelist_enabled": false,
-    "whitelisted_ips": []
-  }
-}
-```
+## [2.3.0]
 
-**Recommended Security Configuration:**
+### Added
+- Database backup scheduling
+- Automatic old backup cleanup
+- Backup retention policy (keep last 100 backups)
+- Next backup countdown timer
 
-For **Internet-Exposed Servers:**
-- `whitelist_enabled`: true
-- Add only trusted public IP addresses
-- Use a VPN for remote access when possible
+### Changed
+- Enhanced backup timing accuracy
+- Improved schedule configuration
 
-For **Maximum Security:**
-- `whitelist_enabled`: true
-- Change default port (40100) to a non-standard port
-- Use strong authentication key (regenerate from UI)
-- Regularly review connected clients list
+## [2.2.0] 
 
-### Known Issues
+### Added
+- Database restoration from backup
+- Backup file selection interface
+- Confirmation dialogs for dangerous operations
 
-- Windows Firewall rule creation requires Administrator privileges
-- Manual firewall configuration needed if auto-creation fails
-- IP whitelist doesn't support CIDR notation (only individual IPs)
+### Security
+- Added warnings for destructive operations
 
-### Future Enhancements
+## [2.1.0]
 
-Planned for future releases:
-- TLS/SSL encryption for remote connections
-- CIDR notation support for IP whitelist
-- Connection rate limiting (in addition to authentication rate limiting)
-- Session timeout configuration
-- Two-factor authentication support
+### Added
+- Manual database backup functionality
+- Backup file listing
+- Backup timestamp display
+
+### Changed
+- Improved mysqldump integration
+- Better error messages for backup failures
+
+## [2.0.0]
+
+### Added
+- Modern GUI using tkinter
+- Tab-based interface
+- Activity logging
+- Status bar
+- Styled components with dark theme
+
+### Changed
+- Complete UI overhaul from command-line to graphical interface
+- Improved user experience
+
+## [1.0.0]
+
+### Added
+- Initial release
+- Basic database backup functionality
+- Command-line interface
+- MySQL integration
 

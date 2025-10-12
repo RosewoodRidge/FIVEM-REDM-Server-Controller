@@ -16,6 +16,7 @@ from remote_app.remote_tabs import (
     RemoteDatabaseBackupTab,
     RemoteTxAdminUpdateTab
 )
+from remote_app.resource_monitor_tab import ResourceMonitorTab
 from remote_protocol import RemoteClient, RemoteMessage, STATUS_OK, STATUS_ERROR
 from remote_settings import load_settings, save_settings
 from update import check_for_updates, CURRENT_VERSION
@@ -26,7 +27,7 @@ class RemoteBackupApp:
     def __init__(self, root):
         self.root = root
         self.root.title("FIVEM & REDM Remote Controller")
-        self.root.geometry("850x800")
+        self.root.geometry("925x800")  # Increased from 850x800 to 925x800
         self.root.configure(bg=COLORS['bg'])
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         
@@ -67,7 +68,12 @@ class RemoteBackupApp:
         self.tabs['server_backup'] = RemoteServerBackupTab(self.notebook, self)
         self.tabs['database_backup'] = RemoteDatabaseBackupTab(self.notebook, self)
         self.tabs['txadmin_update'] = RemoteTxAdminUpdateTab(self.notebook, self)
+        self.tabs['resource_monitor'] = ResourceMonitorTab(self.notebook, self)
         self.tabs['activity_log'] = ActivityLogTab(self.notebook, self)
+        
+        # Manually add resource monitor tab (it doesn't add itself)
+        self.notebook.add(self.tabs['resource_monitor'].tab, text="Resources")
+        self.tabs['resource_monitor'].tab_index = 5  # Index in notebook
         
         # Use activity log's text widget
         self.log_text = self.tabs['activity_log'].log_text
@@ -75,7 +81,7 @@ class RemoteBackupApp:
         # Disable tabs until connected
         self.set_tabs_state(tk.DISABLED)
         self.notebook.tab(0, state="normal")  # Keep connection tab enabled
-        self.notebook.tab(5, state="normal")  # Keep activity log enabled
+        self.notebook.tab(6, state="normal")  # Keep activity log enabled (now index 6)
         
         # Status bar
         status_bar = ttk.Frame(root, style="TFrame")
@@ -106,7 +112,7 @@ class RemoteBackupApp:
     
     def set_tabs_state(self, state):
         """Enable or disable all tabs except connection and log"""
-        for i in range(1, 5):  # Server control through TxAdmin update
+        for i in range(1, 6):  # Server control through Resource Monitor
             self.notebook.tab(i, state=state)
     
     def is_connected(self):
@@ -387,6 +393,13 @@ class RemoteBackupApp:
                 self.tabs['txadmin_update'].update_txadmin_status(msg, progress)
             
             logging.info(f"Progress update: {msg} ({progress}%)")
+        
+        elif message.command == "RESOURCE_STATS":
+            # Update resource monitor with new stats
+            stats = message.data
+            if hasattr(self.tabs.get('resource_monitor'), 'update_stats'):
+                self.tabs['resource_monitor'].update_stats(stats)
+            logging.debug("Updated resource stats")
     
     def log_message(self, message):
         """Add a message to the log display"""

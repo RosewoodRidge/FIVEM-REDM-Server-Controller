@@ -121,62 +121,52 @@ def take_ownership_and_remove(path, callback=None):
     Takes ownership of files/folders and then removes them
     Handles locked files by changing permissions
     """
-    # Define constants for Windows API
-    SE_TAKE_OWNERSHIP_NAME = "SeTakeOwnershipPrivilege"
-    SE_PRIVILEGE_ENABLED = 0x00000002
-    TOKEN_ADJUST_PRIVILEGES = 0x00000020
-    TOKEN_QUERY = 0x00000008
-    
-    class LUID(ctypes.Structure):
-        _fields_ = [
-            ("LowPart", wintypes.DWORD),
-            ("HighPart", wintypes.LONG)
-        ]
-        
-    class LUID_AND_ATTRIBUTES(ctypes.Structure):
-        _fields_ = [
-            ("Luid", LUID),
-            ("Attributes", wintypes.DWORD)
-        ]
-        
-    class TOKEN_PRIVILEGES(ctypes.Structure):
-        _fields_ = [
-            ("PrivilegeCount", wintypes.DWORD),
-            ("Privileges", LUID_AND_ATTRIBUTES * 1)
-        ]
-    
     # Try standard removal first
     try:
         if os.path.isfile(path):
-            os.chmod(path, stat.S_IWRITE)
+            os.chmod(path, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
             os.unlink(path)
         elif os.path.isdir(path):
             for root, dirs, files in os.walk(path):
                 for file in files:
                     try:
                         file_path = os.path.join(root, file)
-                        os.chmod(file_path, stat.S_IWRITE)
+                        os.chmod(file_path, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
                     except:
                         pass  # Just try to change what we can
             shutil.rmtree(path, ignore_errors=True)
         return True
     except Exception as e:
         if callback:
-            callback(f"Standard removal failed: {str(e)}. Trying with elevated privileges...")
+            callback(f"Standard removal failed: {str(e)}")
         
-        # If standard removal fails, try with Windows API
-        try:
-            if os.path.exists(path):
-                # Try running rmdir or del with /F flag using cmd
-                if os.path.isdir(path):
-                    subprocess.run(['cmd', '/c', f'rmdir /S /Q "{path}"'], shell=True)
-                else:
-                    subprocess.run(['cmd', '/c', f'del /F /Q "{path}"'], shell=True)
-            return True
-        except Exception as e2:
-            if callback:
-                callback(f"Failed to remove with elevated privileges: {str(e2)}")
-            return False
+        # Windows-specific elevated removal
+        if is_windows():
+            try:
+                if os.path.exists(path):
+                    # Try running rmdir or del with /F flag using cmd
+                    if os.path.isdir(path):
+                        subprocess.run(['cmd', '/c', f'rmdir /S /Q "{path}"'], shell=True)
+                    else:
+                        subprocess.run(['cmd', '/c', f'del /F /Q "{path}"'], shell=True)
+                return True
+            except Exception as e2:
+                if callback:
+                    callback(f"Failed to remove with elevated privileges: {str(e2)}")
+                return False
+        else:
+            # On Linux, try with sudo if available
+            try:
+                if os.path.exists(path):
+                    if os.path.isdir(path):
+                        subprocess.run(['sudo', 'rm', '-rf', path], check=True)
+                    else:
+                        subprocess.run(['sudo', 'rm', '-f', path], check=True)
+                return True
+            except:
+                if callback:
+                    callback(f"Failed to remove: {str(e)}")
+                return False
 
 def start_fxserver(server_path=None, callback=None):
     """

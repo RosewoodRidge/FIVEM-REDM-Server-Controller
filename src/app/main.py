@@ -29,6 +29,7 @@ from txadmin import get_txadmin_backups, check_for_txadmin_updates, find_fxserve
 from update import check_for_updates, CURRENT_VERSION
 from remote_protocol import RemoteServer, RemoteMessage, STATUS_OK, STATUS_ERROR
 from settings import load_settings
+from resource_monitor import ResourceMonitor
 
 class BackupApp:
     def __init__(self, root):
@@ -138,6 +139,13 @@ class BackupApp:
                 self.tabs['remote_control'].remote_enabled_var.set(True)
                 self.root.after(1000, self.tabs['remote_control'].toggle_remote_control)
         
+            # Initialize resource monitor
+            self.resource_monitor = ResourceMonitor()
+            
+            # Start resource monitoring broadcast thread
+            self.monitor_thread = threading.Thread(target=self.resource_monitor_loop, daemon=True)
+            self.monitor_thread.start()
+            
             logging.info("Application initialized successfully")
             
         except Exception as e:
@@ -599,6 +607,31 @@ class BackupApp:
             self.root.after(1000, self.on_close)
             self.root.after(1500, lambda: os._exit(0))
 
+    def resource_monitor_loop(self):
+        """Background thread that broadcasts resource stats every second"""
+        while self.running:
+            try:
+                # Only broadcast if remote control is enabled and has clients
+                if self.remote_enabled and self.remote_server and self.remote_server.client_sockets:
+                    stats = self.resource_monitor.get_current_stats()
+                    if stats:
+                        self.broadcast_resource_stats(stats)
+            except Exception as e:
+                logging.error(f"Error in resource monitor loop: {e}")
+            
+            # Wait 1 second before next update
+            import time
+            time.sleep(1)
+    
+    def broadcast_resource_stats(self, stats):
+        """Broadcast resource statistics to all connected remote clients"""
+        if self.remote_server:
+            self.remote_server.broadcast_message(RemoteMessage(
+                command="RESOURCE_STATS",
+                status=STATUS_OK,
+                data=stats
+            ))
+    
     def on_close(self):
         """Clean up when the window is closed"""
         # Stop remote server if running
