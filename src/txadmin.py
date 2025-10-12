@@ -20,8 +20,10 @@ from config import (
     TXADMIN_URL, TXADMIN_KEEP_COUNT, SEVEN_ZIP_PATH, AUTO_UPDATE_TXADMIN
 )
 
-# Create txadmin backup directory if it doesn't exist
-os.makedirs(TXADMIN_BACKUP_DIR, exist_ok=True)
+# Don't create directories on import - do it in a function instead
+def ensure_txadmin_backup_dir():
+    """Ensure the txadmin backup directory exists"""
+    os.makedirs(TXADMIN_BACKUP_DIR, exist_ok=True)
 
 # Path to store current version information
 TXADMIN_VERSION_FILE = os.path.join(TXADMIN_BACKUP_DIR, "current_version.json")
@@ -230,7 +232,7 @@ def get_latest_txadmin_url(callback=None):
     Scrapes the FiveM website to get the latest recommended txAdmin download URL
     """
     if callback:
-        callback("Checking for latest txAdmin version...")
+        callback("Checking for latest txAdmin version...", 5)
     
     try:
         # Get the main artifacts page
@@ -280,7 +282,7 @@ def get_latest_txadmin_url(callback=None):
         logging.info(f"Constructed download URL: {download_url}")
         
         if callback:
-            callback(f"Found latest txAdmin version: {download_url}")
+            callback(f"Found latest txAdmin version: {download_url}", 5)
         
         return download_url
     
@@ -288,7 +290,7 @@ def get_latest_txadmin_url(callback=None):
         error_message = f"Failed to get latest txAdmin URL: {str(e)}"
         logging.error(error_message)
         if callback:
-            callback(error_message)
+            callback(error_message, 5)
         return None
 
 def check_for_txadmin_updates(callback=None):
@@ -428,10 +430,10 @@ def backup_txadmin(callback=None):
     Returns tuple (success, backup_file_path)
     """
     if callback:
-        callback("Creating backup of current txAdmin server...")
+        callback("Creating backup of the current txAdmin server...", 10)
     
     # Ensure backup directory exists
-    os.makedirs(TXADMIN_BACKUP_DIR, exist_ok=True)
+    ensure_txadmin_backup_dir()
     
     try:
         # Create a unique filename with timestamp
@@ -451,7 +453,7 @@ def backup_txadmin(callback=None):
                     zipf.write(file_path, rel_path)
         
         if callback:
-            callback(f"Successfully created txAdmin backup: {backup_file}")
+            callback(f"Successfully created txAdmin backup: {backup_file}", 10)
         
         return True, backup_file
     
@@ -459,7 +461,7 @@ def backup_txadmin(callback=None):
         error_message = f"Failed to backup txAdmin: {str(e)}"
         logging.error(error_message)
         if callback:
-            callback(error_message)
+            callback(error_message, 10)
         return False, error_message
 
 def download_txadmin(url, callback=None):
@@ -468,7 +470,7 @@ def download_txadmin(url, callback=None):
     Returns tuple (success, file_path)
     """
     if callback:
-        callback(f"Downloading txAdmin update from {url}...")
+        callback(f"Downloading txAdmin update from {url}...", 20)
     
     try:
         # Ensure download directory exists
@@ -492,9 +494,9 @@ def download_txadmin(url, callback=None):
                         if chunk:
                             f.write(chunk)
                             downloaded += len(chunk)
-                            progress = (downloaded / total_size) * 100
+                            progress_percent = 20 + int((downloaded / total_size) * 60)  # 20-80%
                             if callback:
-                                callback(f"Downloaded {downloaded / (1024*1024):.1f} MB of {total_size / (1024*1024):.1f} MB ({progress:.1f}%)")
+                                callback(f"Downloaded {downloaded / (1024*1024):.1f} MB of {total_size / (1024*1024):.1f} MB ({progress_percent-20:.0f}%)", progress_percent)
             else:
                 # For responses without content length
                 with open(file_path, 'wb') as f:
@@ -503,7 +505,7 @@ def download_txadmin(url, callback=None):
                             f.write(chunk)
         
         if callback:
-            callback(f"Download complete: {file_path}")
+            callback(f"Download complete: {file_path}", 80)
         
         return True, file_path
     
@@ -511,7 +513,7 @@ def download_txadmin(url, callback=None):
         error_message = f"Failed to download txAdmin update: {str(e)}"
         logging.error(error_message)
         if callback:
-            callback(error_message)
+            callback(error_message, 80)
         return False, error_message
 
 def extract_txadmin(file_path, callback=None):
@@ -520,7 +522,7 @@ def extract_txadmin(file_path, callback=None):
     Returns tuple (success, message)
     """
     if callback:
-        callback(f"Extracting txAdmin update from {file_path}...")
+        callback(f"Extracting txAdmin update from {file_path}...", 80)
     
     try:
         # Check if the 7z file exists
@@ -536,7 +538,7 @@ def extract_txadmin(file_path, callback=None):
         
         if was_running and not stop_success:
             if callback:
-                callback("Warning: Could not stop all FXServer processes. Update may fail or require a restart.")
+                callback("Warning: Could not stop all FXServer processes. Update may fail or require a restart.", 80)
         
         # Wait a little extra time to ensure processes are fully terminated
         time.sleep(3)
@@ -544,14 +546,14 @@ def extract_txadmin(file_path, callback=None):
         # Check if server directory exists, clear it if it does
         if os.path.exists(TXADMIN_SERVER_DIR):
             if callback:
-                callback("Removing existing server files...")
+                callback("Removing existing server files...", 82)
             
             # Try multiple attempts to remove the directory
             removal_success = False
             for attempt in range(3):
                 try:
                     if callback and attempt > 0:
-                        callback(f"Removal attempt {attempt+1}...")
+                        callback(f"Removal attempt {attempt+1}...", 82)
                     
                     if take_ownership_and_remove(TXADMIN_SERVER_DIR, callback):
                         removal_success = True
@@ -561,7 +563,7 @@ def extract_txadmin(file_path, callback=None):
                     time.sleep(2)
                 except Exception as e:
                     if callback:
-                        callback(f"Removal attempt {attempt+1} failed: {str(e)}")
+                        callback(f"Removal attempt {attempt+1} failed: {str(e)}", 82)
                     time.sleep(2)
             
             if not removal_success:
@@ -572,7 +574,7 @@ def extract_txadmin(file_path, callback=None):
         
         # Extract the 7z archive using 7-Zip command line
         if callback:
-            callback("Extracting files...")
+            callback("Extracting files...", 85)
         
         # Command: 7z x archive.7z -oOutputDir
         extract_command = [
@@ -594,12 +596,12 @@ def extract_txadmin(file_path, callback=None):
             raise Exception(f"7-Zip extraction failed: {process.stderr}")
         
         if callback:
-            callback("Extraction complete!")
+            callback("Extraction complete!", 95)
         
         # Restart FXServer if it was running before
         if was_running:
             if callback:
-                callback("Restarting FXServer.exe...")
+                callback("Restarting FXServer.exe...", 97)
             restart_success, restart_message = start_fxserver(
                 server_path=server_info if isinstance(server_info, str) else None, 
                 callback=callback
@@ -607,7 +609,7 @@ def extract_txadmin(file_path, callback=None):
             
             if not restart_success:
                 if callback:
-                    callback(f"Warning: Failed to restart FXServer.exe: {restart_message}")
+                    callback(f"Warning: Failed to restart FXServer.exe: {restart_message}", 97)
         
         return True, "TxAdmin update extracted successfully"
     
@@ -615,7 +617,7 @@ def extract_txadmin(file_path, callback=None):
         error_message = f"Failed to extract txAdmin update: {str(e)}"
         logging.error(error_message)
         if callback:
-            callback(error_message)
+            callback(error_message, 80)
         return False, error_message
 
 def restore_txadmin_backup(backup_file, callback=None):

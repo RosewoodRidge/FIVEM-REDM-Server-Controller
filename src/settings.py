@@ -1,10 +1,12 @@
 import os
+import sys
 import json
 import logging
 from pathlib import Path
+from config_manager import get_data_dir
 
-# Settings file location
-SETTINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+# Settings file location - use data directory
+SETTINGS_DIR = get_data_dir()
 SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
 
 # Default settings

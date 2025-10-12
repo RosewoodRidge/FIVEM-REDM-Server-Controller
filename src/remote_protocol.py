@@ -6,8 +6,10 @@ import hashlib
 import time
 import base64
 import threading
+import os
 from datetime import datetime
 from collections import defaultdict
+from config_manager import get_logs_dir
 
 # Set up specific logger for remote operations
 remote_logger = logging.getLogger('remote_control')
@@ -15,10 +17,7 @@ remote_logger.setLevel(logging.DEBUG)
 
 # Add file handler if not already added
 if not remote_logger.handlers:
-    # Create logs directory if it doesn't exist
-    import os
-    logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-    os.makedirs(logs_dir, exist_ok=True)
+    logs_dir = get_logs_dir()
     
     # Create file handler
     fh = logging.FileHandler(os.path.join(logs_dir, 'remote_control.log'))
@@ -364,6 +363,10 @@ class RemoteServer:
                 )
                 self._send_message(client_socket, auth_success)
                 
+                # Set socket to blocking mode for command processing
+                client_socket.settimeout(None)
+                logging.info(f"Entering command loop for {ip_address}:{address[1]} (blocking mode)")
+                
                 # Process commands from this client
                 self._process_client_commands(client_socket, address)
             else:
@@ -412,17 +415,20 @@ class RemoteServer:
             
     def _process_client_commands(self, client_socket, address):
         """Process commands from an authenticated client"""
+        logging.info(f"Started command loop for {address[0]}:{address[1]}")
         while self.running:
             try:
                 message = self._receive_message(client_socket)
                 if not message:
+                    logging.info(f"Client {address[0]}:{address[1]} connection closed or no message received")
                     break
                 
                 logging.info(f"Received command {message.command} from {address[0]}:{address[1]}")
                 
                 if self.command_handler:
                     response = self.command_handler(message)
-                    self._send_message(client_socket, response)
+                    if response:
+                        self._send_message(client_socket, response)
                 else:
                     response = RemoteMessage(
                         command=message.command,
@@ -432,15 +438,13 @@ class RemoteServer:
                     self._send_message(client_socket, response)
             
             except socket.timeout:
-                # Send a ping to keep the connection alive
-                ping = RemoteMessage(command="PING")
-                try:
-                    self._send_message(client_socket, ping)
-                except:
-                    break
+                # Timeout is fine - just means no message received
+                # Don't send ping on timeout, just continue
+                continue
             
             except Exception as e:
-                logging.error(f"Error processing commands from {address[0]}:{address[1]}: {str(e)}")
+                if self.running:
+                    logging.error(f"Error processing commands from {address[0]}:{address[1]}: {str(e)}")
                 break
         
         # Clean up when done
@@ -479,19 +483,35 @@ class RemoteServer:
             if not length_bytes:
                 return None
             
+            if len(length_bytes) != 4:
+                remote_logger.error(f"Incomplete length header received: {len(length_bytes)} bytes")
+                return None
+            
             length = int.from_bytes(length_bytes, byteorder='big')
+            
+            # Sanity check on message length
+            if length <= 0 or length > 10 * 1024 * 1024:  # Max 10MB message
+                remote_logger.error(f"Invalid message length: {length}")
+                return None
             
             # Get the message data
             data = b''
             while len(data) < length:
-                chunk = client_socket.recv(min(4096, length - len(data)))
+                remaining = length - len(data)
+                chunk = client_socket.recv(min(4096, remaining))
                 if not chunk:
+                    remote_logger.error(f"Connection closed while receiving message. Got {len(data)}/{length} bytes")
                     return None
                 data += chunk
             
             # Parse the message
-            json_str = data.decode('utf-8')
-            return RemoteMessage.from_json(json_str)
+            try:
+                json_str = data.decode('utf-8')
+                return RemoteMessage.from_json(json_str)
+            except UnicodeDecodeError as e:
+                remote_logger.error(f"Failed to decode message as UTF-8: {e}")
+                remote_logger.error(f"First 100 bytes: {data[:100]}")
+                return None
         
         except Exception as e:
             if self.debug_mode:
@@ -528,8 +548,11 @@ class RemoteClient:
         self.client_socket = None
         self.connected = False
         self.authenticated = False
-        self.receive_thread = None
+        self.listener_thread = None
         self.running = False
+        
+        # Add a lock for socket operations to prevent concurrent access
+        self.socket_lock = threading.Lock()
         
         # Setup logging
         logging.basicConfig(
@@ -552,22 +575,27 @@ class RemoteClient:
             
             # Create socket
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.client_socket.settimeout(30)  # Increase timeout to 30 seconds
+            self.client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            self.client_socket.settimeout(30)
             
             # Connect to server
             self.client_socket.connect((self.host, self.port))
             self.connected = True
-            self.running = True
             
-            # Authentication is now part of the connect flow
-            if not self._handle_authentication():
+            # Authenticate
+            if not self._authenticate():
                 self.disconnect()
                 return False
-
-            # Start receive thread ONLY after successful authentication
-            self.receive_thread = threading.Thread(target=self._receive_messages, daemon=True)
-            self.receive_thread.start()
             
+            # Set socket to non-blocking mode for listener
+            self.client_socket.setblocking(False)
+            
+            # Start listener thread for broadcast messages
+            self.running = True
+            self.listener_thread = threading.Thread(target=self._listen_for_broadcasts, daemon=True)
+            self.listener_thread.start()
+            
+            logging.info("Successfully connected and authenticated")
             return True
             
         except socket.timeout:
@@ -579,143 +607,100 @@ class RemoteClient:
             self.disconnect()
             return False
     
-    def _handle_authentication(self):
-        """Process authentication with the server"""
+    def _authenticate(self):
+        """Authenticate with the server"""
         try:
-            # Wait for auth request with longer timeout
-            logging.info("Waiting for authentication request from server")
-            auth_request = self._receive_message_sync(timeout=30)
-            if not auth_request:
-                logging.error("No authentication request received from server")
+            # Wait for auth request
+            auth_request = self._receive_message_blocking()
+            if not auth_request or auth_request.command != "AUTH":
+                logging.error("Invalid authentication request")
                 return False
             
-            # Use direct string comparison instead of constants to avoid undefined references
-            if auth_request.command != "AUTH" or auth_request.status != "AUTH_REQUIRED":
-                logging.error(f"Invalid authentication protocol - got command: {auth_request.command}, status: {auth_request.status}")
-                return False
-            
-            # Send auth response - use string literal for command type
-            logging.info("Sending authentication key to server")
+            # Send auth response
             auth_response = RemoteMessage(
-                command="AUTH",  # Direct string literal instead of CMD_AUTH
+                command="AUTH",
                 data={"auth_key": self.auth_key}
             )
-            if not self.send_message(auth_response):
-                logging.error("Failed to send authentication response")
-                return False
+            self._send_message_blocking(auth_response)
             
-            # Wait for auth result with longer timeout
-            logging.info("Waiting for authentication result")
-            auth_result = self._receive_message_sync(timeout=30)
-            if not auth_result:
-                logging.error("No authentication result received")
-                return False
-            
-            # Use string literal for comparison
-            if auth_result.command != "AUTH":
-                logging.error(f"Invalid authentication response - got command: {auth_result.command}")
-                return False
-            
-            # Use string literal for comparison
-            if auth_result.status != "OK":
-                logging.error(f"Authentication failed: {auth_result.message}")
+            # Wait for auth result
+            auth_result = self._receive_message_blocking()
+            if not auth_result or auth_result.command != "AUTH" or auth_result.status != "OK":
+                logging.error("Authentication failed")
                 return False
             
             self.authenticated = True
-            logging.info("Successfully authenticated with server")
             return True
             
         except Exception as e:
-            error_message = f"Authentication error: {str(e)}"
-            logging.error(error_message)
+            logging.error(f"Authentication error: {str(e)}")
             return False
     
-    def disconnect(self):
-        """Disconnect from the server"""
-        self.running = False
-        self.connected = False
-        self.authenticated = False
+    def _listen_for_broadcasts(self):
+        """Background thread that listens for broadcast messages from server"""
+        logging.info("Started listening for broadcast messages")
         
-        if self.client_socket:
+        while self.running and self.connected:
             try:
-                self.client_socket.close()
-            except:
-                pass
-            self.client_socket = None
-            
-        logging.info("Disconnected from server")
-    
-    def _receive_messages(self):
-        """Background thread to receive messages"""
-        while self.running and self.client_socket:
-            try:
-                message = self._receive_message_internal()
-                if not message:
-                    break
+                # Use select to check if data is available (non-blocking)
+                import select
+                ready_to_read, _, _ = select.select([self.client_socket], [], [], 1.0)
                 
-                # Process received message
-                if self.message_handler:
-                    self.message_handler(message)
-                
-            except socket.timeout:
-                # This is fine, just retry
-                continue
+                if ready_to_read:
+                    with self.socket_lock:
+                        message = self._receive_message_nonblocking()
+                        if message:
+                            # Handle the broadcast message
+                            if self.message_handler:
+                                self.message_handler(message)
+                            else:
+                                logging.info(f"Received broadcast: {message.command}")
+                        else:
+                            # No message could mean connection closed
+                            if not self.connected:
+                                break
+                        
             except Exception as e:
-                if self.running:  # Only log if we're supposed to be running
-                    logging.error(f"Error receiving message: {str(e)}")
+                if self.running:
+                    logging.error(f"Error in listener thread: {str(e)}")
+                    self.disconnect()
                 break
         
-        # If we exited the loop and still running, connection was lost
-        if self.running:
-            self.root.after(0, lambda: self._update_connection_status(False, "Connection to server lost"))
+        logging.info("Stopped listening for broadcast messages")
     
-    def _receive_message_sync(self, timeout=10):
-        """Synchronously receive a message with timeout"""
-        if not self.client_socket:
+    def send_command(self, command, data=None):
+        """Send a command and wait for response"""
+        if not self.connected or not self.authenticated:
+            logging.error("Not connected or authenticated")
             return None
-            
-        original_timeout = self.client_socket.gettimeout()
-        try:
-            self.client_socket.settimeout(timeout)
-            return self._receive_message_internal()
-        finally:
-            if self.client_socket:
-                self.client_socket.settimeout(original_timeout)
-    
-    def _receive_message_internal(self):
-        """Internal method to receive a message"""
-        if not self.client_socket:
-            return None
-            
-        try:
-            # Get message length (4 bytes)
-            length_bytes = self.client_socket.recv(4)
-            if not length_bytes:
+        
+        with self.socket_lock:
+            try:
+                # Send command
+                message = RemoteMessage(command=command, data=data or {})
+                self._send_message_blocking(message)
+                
+                # Wait for response with timeout
+                self.client_socket.settimeout(30)
+                response = self._receive_message_blocking()
+                
+                # Restore non-blocking mode
+                self.client_socket.setblocking(False)
+                
+                return response
+                
+            except socket.timeout:
+                logging.error(f"Timeout waiting for response to {command}")
+                self.client_socket.setblocking(False)
                 return None
-            
-            length = int.from_bytes(length_bytes, byteorder='big')
-            
-            # Get the message data
-            data = b''
-            while len(data) < length:
-                chunk = self.client_socket.recv(min(4096, length - len(data)))
-                if not chunk:
-                    return None
-                data += chunk
-            
-            # Parse the message
-            json_str = data.decode('utf-8')
-            return RemoteMessage.from_json(json_str)
-            
-        except Exception as e:
-            if self.running:  # Only log if we're supposed to be running
-                logging.error(f"Error receiving message: {str(e)}")
-            return None
+            except Exception as e:
+                logging.error(f"Error in send_command: {str(e)}")
+                self.disconnect()
+                return None
     
-    def send_message(self, message):
-        """Send a message to the server. Renamed from _send_message for public use."""
-        if not self.client_socket or not self.connected:
-            logging.error("Cannot send message, not connected.")
+    def _send_message_blocking(self, message):
+        """Send a message (blocking mode - use with lock)"""
+        if not self.client_socket:
             return False
             
         try:
@@ -732,14 +717,123 @@ class RemoteClient:
             
         except Exception as e:
             logging.error(f"Error sending message: {str(e)}")
-            self.disconnect()
             return False
     
-    def send_command(self, command, data=None):
-        """Sends a command. Assumes connection is already established."""
-        if not self.connected or not self.authenticated:
-            logging.error("Cannot send command, not connected or authenticated.")
-            return
-
-        message = RemoteMessage(command=command, data=data or {})
-        self.send_message(message)
+    def _receive_message_blocking(self):
+        """Receive a message (blocking mode - use during auth)"""
+        if not self.client_socket:
+            return None
+            
+        try:
+            # Get message length (4 bytes)
+            length_bytes = self._recv_exact(4)
+            if not length_bytes or len(length_bytes) != 4:
+                return None
+            
+            length = int.from_bytes(length_bytes, byteorder='big')
+            
+            # Sanity check
+            if length <= 0 or length > 10 * 1024 * 1024:
+                logging.error(f"Invalid message length: {length}")
+                return None
+            
+            # Get the message data
+            data = self._recv_exact(length)
+            if not data or len(data) != length:
+                return None
+            
+            # Parse the message
+            json_str = data.decode('utf-8')
+            return RemoteMessage.from_json(json_str)
+            
+        except Exception as e:
+            logging.error(f"Error receiving message: {str(e)}")
+            return None
+    
+    def _receive_message_nonblocking(self):
+        """Receive a message (non-blocking mode - for listener)"""
+        if not self.client_socket:
+            return None
+            
+        try:
+            # Get message length (4 bytes)
+            length_bytes = self._recv_exact_nonblocking(4)
+            if not length_bytes or len(length_bytes) != 4:
+                return None
+            
+            length = int.from_bytes(length_bytes, byteorder='big')
+            
+            # Sanity check
+            if length <= 0 or length > 10 * 1024 * 1024:
+                logging.error(f"Invalid message length: {length}")
+                return None
+            
+            # Get the message data
+            data = self._recv_exact_nonblocking(length)
+            if not data or len(data) != length:
+                return None
+            
+            # Parse the message
+            json_str = data.decode('utf-8')
+            return RemoteMessage.from_json(json_str)
+            
+        except Exception as e:
+            logging.error(f"Error receiving message: {str(e)}")
+            return None
+    
+    def _recv_exact(self, num_bytes):
+        """Receive exactly num_bytes (blocking)"""
+        data = b''
+        while len(data) < num_bytes:
+            chunk = self.client_socket.recv(num_bytes - len(data))
+            if not chunk:
+                return None
+            data += chunk
+        return data
+    
+    def _recv_exact_nonblocking(self, num_bytes):
+        """Receive exactly num_bytes (non-blocking with timeout)"""
+        import select
+        data = b''
+        start_time = time.time()
+        timeout = 5.0  # 5 second timeout for receiving
+        
+        while len(data) < num_bytes:
+            if time.time() - start_time > timeout:
+                logging.error(f"Timeout receiving {num_bytes} bytes, got {len(data)}")
+                return None
+            
+            # Wait for data to be available
+            ready, _, _ = select.select([self.client_socket], [], [], 0.1)
+            if ready:
+                try:
+                    chunk = self.client_socket.recv(num_bytes - len(data))
+                    if not chunk:
+                        return None
+                    data += chunk
+                except socket.error:
+                    pass  # Would block, continue waiting
+        
+        return data
+    
+    def disconnect(self):
+        """Disconnect from the server"""
+        self.running = False
+        self.connected = False
+        self.authenticated = False
+        
+        if self.client_socket:
+            try:
+                self.client_socket.close()
+            except:
+                pass
+            self.client_socket = None
+        
+        # Wait for listener thread to finish
+        if self.listener_thread and threading.current_thread() != self.listener_thread:
+            try:
+                self.listener_thread.join(timeout=2)
+            except:
+                pass
+            
+        logging.info("Disconnected from server")

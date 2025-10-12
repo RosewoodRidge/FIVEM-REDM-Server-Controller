@@ -1,8 +1,11 @@
 import os
+import sys
 import json
 import logging
+from config_manager import get_data_dir
 
-SETTINGS_FILE = 'remote_config.json'
+# Use data directory for settings
+SETTINGS_FILE = os.path.join(get_data_dir(), 'remote_config.json')
 
 DEFAULT_SETTINGS = {
     "connection": {

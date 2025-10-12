@@ -7,8 +7,10 @@ import glob
 from datetime import datetime
 from config import SERVER_FOLDER, SERVER_BACKUP_DIR, SERVER_BACKUP_KEEP_COUNT, SERVER_BACKUP_THROTTLE
 
-# Create server backup directory if it doesn't exist
-os.makedirs(SERVER_BACKUP_DIR, exist_ok=True)
+# Don't create directories on import - do it in a function instead
+def ensure_server_backup_dir():
+    """Ensure the server backup directory exists"""
+    os.makedirs(SERVER_BACKUP_DIR, exist_ok=True)
 
 def backup_server_folder(callback=None):
     """
@@ -16,7 +18,7 @@ def backup_server_folder(callback=None):
     Returns tuple (success, message or filename)
     """
     # Ensure backup directory exists
-    os.makedirs(SERVER_BACKUP_DIR, exist_ok=True)
+    ensure_server_backup_dir()
     
     # Create a unique filename with a timestamp
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')

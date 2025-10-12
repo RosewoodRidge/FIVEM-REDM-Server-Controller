@@ -32,7 +32,6 @@ echo [Step 2/6] Installing Python dependencies...
 echo This may take a few minutes...
 echo.
 
-REM Note: secrets and hashlib are built-in Python modules, no need to install them
 set PACKAGES=pyinstaller requests beautifulsoup4 psutil pywin32 winshell Pillow
 
 for %%p in (%PACKAGES%) do (
@@ -111,19 +110,6 @@ if errorlevel 1 (
 echo OK: Remote client built
 echo.
 
-REM Build config editor
-echo Building FIVEM ^& REDM Configuration Editor...
-python -m PyInstaller config_editor.spec --clean --noconfirm
-if errorlevel 1 (
-    echo ERROR: Failed to build config editor
-    echo Check error messages above for details.
-    cd ..
-    pause
-    exit /b 1
-)
-echo OK: Configuration editor built
-echo.
-
 cd ..
 
 REM Step 4: Verify executables
@@ -137,10 +123,6 @@ if not exist "%DIST_DIR%\FIVEM & REDM Server Controller.exe" (
 )
 if not exist "%DIST_DIR%\FIVEM & REDM Remote Client.exe" (
     echo ERROR: Remote client executable not found
-    set ALL_BUILT=0
-)
-if not exist "%DIST_DIR%\FIVEM & REDM Configuration Editor.exe" (
-    echo ERROR: Config editor executable not found
     set ALL_BUILT=0
 )
 
@@ -172,9 +154,6 @@ powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateS
 REM Remote client shortcut
 powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%APP_FOLDER%\FIVEM ^& REDM Remote Client.lnk'); $s.TargetPath = '%CD%\%DIST_DIR%\FIVEM ^& REDM Remote Client.exe'; $s.WorkingDirectory = '%CD%\%DIST_DIR%'; $s.Save()" >nul 2>&1
 
-REM Config editor shortcut
-powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%APP_FOLDER%\FIVEM ^& REDM Configuration Editor.lnk'); $s.TargetPath = '%CD%\%DIST_DIR%\FIVEM ^& REDM Configuration Editor.exe'; $s.WorkingDirectory = '%CD%\%DIST_DIR%'; $s.Save()" >nul 2>&1
-
 echo OK: Start Menu shortcuts created
 echo.
 
@@ -190,7 +169,6 @@ echo.
 echo Applications installed:
 echo - FIVEM ^& REDM Server Controller
 echo - FIVEM ^& REDM Remote Client
-echo - FIVEM ^& REDM Configuration Editor
 echo.
 echo Opening installation folder...
 echo.

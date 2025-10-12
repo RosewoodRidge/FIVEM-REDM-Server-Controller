@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import urllib.request
 from datetime import datetime, timedelta
+from config_manager import get_logs_dir, get_data_dir
 
 # Set up specific logger for update operations
 update_logger = logging.getLogger('update')
@@ -18,9 +19,7 @@ update_logger.setLevel(logging.DEBUG)
 
 # Add file handler if not already added
 if not update_logger.handlers:
-    # Create logs directory if it doesn't exist
-    logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-    os.makedirs(logs_dir, exist_ok=True)
+    logs_dir = get_logs_dir()
     
     # Create file handler
     fh = logging.FileHandler(os.path.join(logs_dir, 'update.log'))
@@ -30,12 +29,13 @@ if not update_logger.handlers:
 # GitHub repository information
 GITHUB_REPO = "RosewoodRidge/FIVEM-REDM-Server-Controller"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-CURRENT_VERSION = "2.6.0"  # Current application version
+CURRENT_VERSION = "2.7.0"  # Current application version
 
 update_logger.info(f"Current application version: {CURRENT_VERSION}")
 
-# File to store last update check time
-UPDATE_CHECK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".update_check")
+# File to store last update check time - use data directory
+UPDATE_CHECK_FILE = os.path.join(get_data_dir(), ".update_check")
+
 UPDATE_CHECK_INTERVAL = timedelta(hours=24)  # Check once every 24 hours
 
 def get_latest_version():

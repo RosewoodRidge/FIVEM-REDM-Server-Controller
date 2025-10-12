@@ -10,33 +10,33 @@ LOG_FILE = 'logs\\backup.log'
 
 # Database configuration
 DB_HOST = 'localhost'
-DB_USER = 'your_database_username'        # Replace with your database username
-DB_PASSWORD = 'your_database_password'    # Replace with your database password
-DB_NAME = 'your_database_name'            # Replace with your database name
+DB_USER = 'rr_web_root'
+DB_PASSWORD = 'hUenD3uVG)3j*7we'
+DB_NAME = 'vorpcore_d7f8d9'
 
 # Backup configuration
-BACKUP_DIR = 'C:\\path\\to\\database_backups'  # Replace with your database backup directory
-MYSQLDUMP_PATH = 'C:\\xampp\\mysql\\bin\\mysqldump.exe'  # Default MySQL dump utility path
-MYSQL_PATH = 'C:\\xampp\\mysql\\bin\\mysql.exe'          # Default MySQL client path
+BACKUP_DIR = r'C:\\Users\\Administrator\\Documents\\server_backups\\database'
+MYSQLDUMP_PATH = r'C:\\xampp\\mysql\\bin\\mysqldump.exe'
+MYSQL_PATH = r'C:\\xampp\\mysql\\bin\\mysql.exe'
 
 # Server backup configuration
-SERVER_FOLDER = 'C:\\path\\to\\server\\resources'        # Replace with your server resources folder
-SERVER_BACKUP_DIR = 'C:\\path\\to\\server_backups'       # Replace with your server backup directory
+SERVER_FOLDER = r'C:\\Users\\Administrator\\Desktop\\txData\\VORPCore_D7F8D9.base\\resources'
+SERVER_BACKUP_DIR = r'C:\\Users\\Administrator\\Documents\\server_backups\\server'
 SERVER_BACKUP_KEEP_COUNT = 10
 SERVER_BACKUP_THROTTLE = 0.1  # seconds delay between files (throttling)
 
 # TxAdmin update configuration
-TXADMIN_SERVER_DIR = 'C:\\path\\to\\fivem_server'        # Replace with your main server directory
-TXADMIN_BACKUP_DIR = 'C:\\path\\to\\txadmin_backups'     # Replace with your txAdmin backup directory
-TXADMIN_DOWNLOAD_DIR = 'C:\\path\\to\\downloads'         # Replace with your download directory
+TXADMIN_SERVER_DIR = r'C:\\Users\\Administrator\\Desktop\\server'
+TXADMIN_BACKUP_DIR = r'C:\\Users\\Administrator\\Documents\\server_backups\\txadmin'
+TXADMIN_DOWNLOAD_DIR = r'C:\\Users\\Administrator\\Downloads'
 TXADMIN_URL = 'https://runtime.fivem.net/artifacts/fivem/build_server_windows/master'
 TXADMIN_KEEP_COUNT = 5
-SEVEN_ZIP_PATH = 'C:\\Program Files\\7-Zip\\7z.exe'  # Path to 7-Zip executable
+SEVEN_ZIP_PATH = r'C:\\Program Files\\7-Zip\\7z.exe'
 AUTO_UPDATE_TXADMIN = True  # Enable/disable automatic TxAdmin updates
 
 # Backup schedule
-DB_BACKUP_HOURS = [3, 15]  # 3 AM and 3 PM
-SERVER_BACKUP_HOURS = [3]  # 3 AM only
+DB_BACKUP_HOURS = [3, 15]
+SERVER_BACKUP_HOURS = [3]
 BACKUP_MINUTE = 0
 
 # --- UI Configuration ---

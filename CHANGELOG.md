@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.7.0] - 2025-10-12
+
+### Added
+
+- **Integrated Configuration Tab**: The standalone Configuration Editor has been removed and integrated directly into the main application as a "Configuration" tab (⚙️) for a more streamlined user experience.
+- **Modular Application Structure**: The main and remote client applications have been refactored into a more modular structure. UI components for each tab are now in separate files, improving code organization and maintainability.
+- **Dynamic Configuration Loading**: The application now loads configuration from a `config.json` file and can be restarted from the UI to apply changes.
+
+### Changed
+
+- **Codebase Refactoring**: Major refactoring of `app.py` and `remote_app.py`. Logic is now split into `main.py` and individual tab modules within `app/` and `remote_app/` subdirectories.
+- **Build Process**: The `install.bat` script and PyInstaller spec files have been updated to reflect the removal of the standalone configuration editor.
+- **Documentation**: Updated `instructions.md` to remove references to the old configuration editor and guide users to the new integrated Configuration tab.
+
+### Removed
+
+- **Standalone Configuration Editor**: `FIVEM & REDM Configuration Editor.exe` is no longer built or included. All configuration is now managed within the main application.
+
 ## [2.6.0] - 2025-10-11
 
 ### Added

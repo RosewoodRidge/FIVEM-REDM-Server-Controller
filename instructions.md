@@ -31,6 +31,7 @@ This comprehensive utility helps you manage FiveM and RedM servers with automate
 ### What Gets Installed
 
 Three applications will be created in the `dist` folder:
+Two applications will be created in the `dist` folder:
 
 1. **FIVEM & REDM Server Controller.exe** - Main application for server management
 2. **FIVEM & REDM Remote Client.exe** - Remote control client for managing servers from another computer
@@ -44,6 +45,9 @@ Three applications will be created in the `dist` folder:
 
 1. **Open the Configuration Editor** from Start Menu → FIVEM & REDM Controller → Configuration Editor
 2. Configure the following settings:
+1. **Launch the main application** (`FIVEM & REDM Server Controller.exe`).
+2. **Navigate to the Configuration tab** (look for the ⚙️ icon).
+3. Configure the following settings directly within the application:
 
 #### Database Settings
 - **Database Host**: Your MySQL server address (usually `localhost`)
@@ -81,10 +85,11 @@ Three applications will be created in the `dist` folder:
 - **Server Backup Hours**: When to run server file backups (0-23)
   - Example: `3` = 3 AM daily
 
-3. **Click "Save Configuration"**
-4. **Restart the main application** for changes to take effect
+3. **Click "Save Configuration"**. The application will prompt you to restart.
+4. **Click OK to restart the application** and apply the new settings.
 
 **Important:** Your configuration is stored in `%APPDATA%\FIVEM-REDM-Controller\config.py` when using the compiled executables. This location persists even if you update the application.
+**Important:** Your configuration is stored in a `config.json` file within a `data` folder next to the executable. This location persists even if you update the application.
 
 ---
 

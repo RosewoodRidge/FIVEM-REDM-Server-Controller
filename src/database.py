@@ -2,6 +2,7 @@ import os
 import subprocess
 import logging
 from datetime import datetime
+# Import from config which will have values applied from JSON
 from config import (
     BACKUP_DIR, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME,
     MYSQLDUMP_PATH, MYSQL_PATH
