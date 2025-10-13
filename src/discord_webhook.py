@@ -33,24 +33,54 @@ def load_webhook_config():
     """Load Discord webhook configuration from config file"""
     try:
         config = load_config()
-        return config.get('DISCORD_WEBHOOK', {
-            'enabled': False,
-            'webhook_url': '',
-            'notifications': {
-                'server_start': True,
-                'server_stop': True,
-                'server_restart': True,
-                'database_backup': True,
-                'server_backup': True,
-                'txadmin_update': True,
-                'backup_failed': True,
-                'server_error': True
-            },
-            'messages': DEFAULT_MESSAGES.copy(),
-            'colors': DEFAULT_COLORS.copy()
-        })
+        webhook_config = config.get('DISCORD_WEBHOOK', {})
+        
+        # If webhook_config is empty or doesn't have required fields, return defaults
+        if not webhook_config or not isinstance(webhook_config, dict):
+            logging.warning("Discord webhook config not found or invalid, using defaults")
+            return {
+                'enabled': False,
+                'webhook_url': '',
+                'notifications': {
+                    'server_start': True,
+                    'server_stop': True,
+                    'server_restart': True,
+                    'database_backup': True,
+                    'server_backup': True,
+                    'txadmin_update': True,
+                    'backup_failed': True,
+                    'server_error': True
+                },
+                'messages': DEFAULT_MESSAGES.copy(),
+                'colors': DEFAULT_COLORS.copy()
+            }
+        
+        # Ensure all required fields exist with defaults
+        result = {
+            'enabled': webhook_config.get('enabled', False),
+            'webhook_url': webhook_config.get('webhook_url', ''),
+            'notifications': webhook_config.get('notifications', {}),
+            'messages': webhook_config.get('messages', {}),
+            'colors': webhook_config.get('colors', {})
+        }
+        
+        # Merge with defaults for any missing notification types
+        for event_type in DEFAULT_MESSAGES.keys():
+            if event_type not in result['notifications']:
+                result['notifications'][event_type] = True
+            if event_type not in result['messages']:
+                result['messages'][event_type] = DEFAULT_MESSAGES[event_type]
+            if event_type not in result['colors']:
+                result['colors'][event_type] = DEFAULT_COLORS[event_type]
+        
+        logging.info(f"Loaded Discord webhook config: enabled={result['enabled']}, url={'set' if result['webhook_url'] else 'not set'}")
+        logging.debug(f"Notifications enabled: {result['notifications']}")
+        
+        return result
+        
     except Exception as e:
         logging.error(f"Failed to load webhook config: {e}")
+        logging.error(f"Exception details:", exc_info=True)
         return {
             'enabled': False,
             'webhook_url': '',
@@ -72,19 +102,31 @@ def send_discord_webhook(event_type, custom_message=None, custom_color=None):
         tuple: (success, message)
     """
     try:
+        logging.info(f"Attempting to send Discord webhook for event: {event_type}")
+        
         config = load_webhook_config()
         
         # Check if webhooks are enabled
         if not config.get('enabled', False):
+            logging.info("Discord webhooks are disabled")
             return True, "Webhooks disabled"
         
         # Check if this notification type is enabled
-        if not config.get('notifications', {}).get(event_type, False):
+        notifications = config.get('notifications', {})
+        if event_type not in notifications:
+            logging.warning(f"Event type '{event_type}' not found in notifications config")
+            return True, f"Event type '{event_type}' not configured"
+        
+        if not notifications.get(event_type, False):
+            logging.info(f"Notifications disabled for event type: {event_type}")
             return True, f"Notifications disabled for {event_type}"
         
         webhook_url = config.get('webhook_url', '')
         if not webhook_url:
+            logging.error("Webhook URL not configured")
             return False, "Webhook URL not configured"
+        
+        logging.info(f"Sending webhook to: {webhook_url[:50]}... for event: {event_type}")
         
         # Get message and color
         message = custom_message or config.get('messages', {}).get(event_type, DEFAULT_MESSAGES.get(event_type, "Event occurred"))
@@ -114,6 +156,8 @@ def send_discord_webhook(event_type, custom_message=None, custom_color=None):
         # Convert to JSON and encode
         json_data = json.dumps(payload)
         data = json_data.encode('utf-8')
+        
+        logging.debug(f"Webhook payload: {json_data}")
         
         # Create request with proper headers
         req = urllib.request.Request(
