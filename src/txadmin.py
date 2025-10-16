@@ -520,6 +520,16 @@ def extract_txadmin(file_path, callback=None):
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Update file not found: {file_path}")
         
+        # Stop FXServer if running before extraction
+        was_running, stop_success, server_info = stop_fxserver(callback)
+        if was_running and not stop_success:
+            if callback:
+                callback("Warning: Could not stop all FXServer processes. Update may fail.")
+        
+        # Wait for processes to fully stop
+        if was_running:
+            time.sleep(3)
+        
         # Platform-specific extraction
         if is_windows():
             # Use 7-Zip on Windows

@@ -2,6 +2,14 @@
 
 All notable changes to the FIVEM & REDM Server Controller will be documented in this file.
 
+## [2.7.8]
+
+### Fixed
+- Fixed TxAdmin update extraction error where `was_running` and `server_info` variables were undefined
+  - The `extract_txadmin()` function now properly stops the FXServer before extraction
+  - Added proper variable initialization to prevent NameError during update process
+  - Server is now correctly restarted after successful update if it was running before
+
 ## [2.7.7]
 
 ### Added

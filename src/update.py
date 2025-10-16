@@ -29,7 +29,7 @@ if not update_logger.handlers:
 # GitHub repository information
 GITHUB_REPO = "RosewoodRidge/FIVEM-REDM-Server-Controller"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-CURRENT_VERSION = "2.7.7"  # Current application version
+CURRENT_VERSION = "2.7.8"  # Current application version
 
 update_logger.info(f"Current application version: {CURRENT_VERSION}")
 
